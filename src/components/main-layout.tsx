@@ -161,7 +161,29 @@ export default function MainLayout({ children }: { children: ReactNode }) {
         <div className="container mx-auto flex h-16 items-center px-4 md:px-6">
           
           <Sheet>
-            {/* Sheet content... */}
+            <SheetTrigger asChild>
+              <Button size="icon" variant="outline" className="md:hidden">
+                <PanelLeft className="h-5 w-5" />
+                <span className="sr-only">Toggle Menu</span>
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="left" className="sm:max-w-xs">
+              <nav className="grid gap-6 text-lg font-medium">
+                <Link
+                  href="/dashboard"
+                  className="group flex h-10 w-10 shrink-0 items-center justify-center gap-2 rounded-full bg-primary text-lg font-semibold text-primary-foreground md:text-base"
+                >
+                  <Logo className="h-5 w-5 transition-all group-hover:scale-110" />
+                  <span className="sr-only">StatusCraft</span>
+                </Link>
+                {navItems.map((item) => (
+                  <NavLink key={item.href} href={item.href} className="flex items-center gap-4 px-2.5">
+                    <item.icon className="h-5 w-5" />
+                    {item.label}
+                  </NavLink>
+                ))}
+              </nav>
+            </SheetContent>
           </Sheet>
           
           <Link href="/dashboard" className="mr-6 flex items-center gap-2">
