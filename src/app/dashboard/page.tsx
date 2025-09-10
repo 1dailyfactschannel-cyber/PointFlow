@@ -142,7 +142,7 @@ export default function ProfilePage() {
   }
 
   return (
-    <div className="container mx-auto max-w-4xl py-8 px-4 md:px-6">
+    <div className="container mx-auto py-8 px-4 md:px-6">
        <Card>
         <CardHeader className="items-center text-center">
              <div className="relative mb-4">
@@ -171,7 +171,7 @@ export default function ProfilePage() {
         </CardHeader>
         <CardContent>
             <Tabs defaultValue="general">
-                <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3">
+                <TabsList className="grid w-full grid-cols-1 xs:grid-cols-2 sm:grid-cols-3">
                     <TabsTrigger value="general">Общая информация</TabsTrigger>
                     <TabsTrigger value="security">Безопасность</TabsTrigger>
                     <TabsTrigger value="requests">Мои заявки</TabsTrigger>
@@ -332,7 +332,7 @@ function UserRequestsTab() {
 
 function ProfileSkeleton() {
   return (
-     <div className="container mx-auto max-w-4xl py-8 px-4 md:px-6">
+     <div className="container mx-auto py-8 px-4 md:px-6">
         <Card>
             <CardHeader className="items-center text-center">
                 <Skeleton className="h-24 w-24 rounded-full" />

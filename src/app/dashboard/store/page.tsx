@@ -106,7 +106,7 @@ export default function StorePage() {
             <Skeleton className="h-10 w-1/3" />
             <Skeleton className="h-4 w-2/3" />
         </div>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
           {Array.from({ length: 12 }).map((_, index) => (
             <Card key={index} className="flex flex-col overflow-hidden">
                 <CardHeader className="p-3">
@@ -136,7 +136,7 @@ export default function StorePage() {
               Выберите товары для приобретения за накопленные баллы.
           </p>
       </div>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
         {products.map((product, index) => {
             const { disabled, text, icon } = getButtonState(product.id);
             return (
@@ -148,26 +148,26 @@ export default function StorePage() {
                             alt={product.name}
                             fill
                             className="object-cover"
-                            sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, (max-width: 1024px) 25vw, (max-width: 1280px) 20vw, 16vw"
-                            priority={index < 6}
+                            sizes="(max-width: 640px) 100vw, (max-width: 768px) 50vw, (max-width: 1024px) 33vw, (max-width: 1280px) 25vw, 20vw"
+                            priority={index < 10}
                         />
                         </div>
-                        <CardTitle className="pt-2 text-sm font-semibold leading-tight truncate">
+                        <CardTitle className="pt-2 text-base font-semibold leading-tight truncate">
                             {product.name}
                         </CardTitle>
                     </CardHeader>
                     <CardContent className="p-3 pt-0">
-                       <CardDescription className="text-xs line-clamp-2">
+                       <CardDescription className="text-sm line-clamp-2">
                            {product.description}
                        </CardDescription>
                     </CardContent>
                     <div className="flex-grow"></div>
                     <CardFooter className="p-3 pt-0 flex items-center justify-between">
-                        <div className="flex items-center gap-1 font-semibold text-sm">
-                        <Wallet className="h-4 w-4 text-amber-500" />
+                        <div className="flex items-center gap-1 font-semibold">
+                        <Wallet className="h-5 w-5 text-amber-500" />
                         <span>{product.price.toLocaleString('ru-RU')}</span>
                         </div>
-                        <Button onClick={() => handleRequest(product)} disabled={disabled} size="sm" className="h-8 px-2 text-xs">
+                        <Button onClick={() => handleRequest(product)} disabled={disabled} size="sm" className="px-3 py-2 text-sm">
                             {icon}{text}
                         </Button>
                     </CardFooter>
