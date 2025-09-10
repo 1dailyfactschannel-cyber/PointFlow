@@ -1,0 +1,86 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // --- Helper Functions ---
+    function isAdmin() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid))
+             && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+    
+    function isSelf(userId) {
+      return request.auth.uid == userId;
+    }
+
+    // --- Data Validation Functions ---
+    function isValidStatus(status) {
+      return status in ['online', 'offline', 'vacation', 'sick_leave'];
+    }
+    
+    function isValidRole(role) {
+      return role in ['admin', 'employee'];
+    }
+
+    // --- Collection: users ---
+    match /users/{userId} {
+      // READ: A user can read their own profile. An admin can read any profile.
+      // This covers get, list, and onSnapshot operations.
+      allow read: if isSelf(userId) || isAdmin();
+
+      // CREATE: Only admins can create new users.
+      allow create: if isAdmin();
+
+      // UPDATE: An admin can update any profile.
+      // An employee can only update specific fields on their own profile.
+      allow update: if isAdmin() ||
+                      (
+                        isSelf(userId) &&
+                        request.resource.data.diff(resource.data).affectedKeys()
+                          .hasOnly(['status', 'statusComment', 'avatar', 'telegram', 'isRemote']) &&
+                        (!('status' in request.resource.data.diff(resource.data).affectedKeys()) || 
+                          isValidStatus(request.resource.data.status))
+                      );
+      
+      // DELETE: Only admins can delete users.
+      allow delete: if isAdmin();
+    }
+    
+    // --- Log Collections ---
+    match /statusLogs/{logId} {
+      allow read: if isSelf(resource.data.userId) || isAdmin();
+      allow create: if (isSelf(request.resource.data.userId) || isAdmin()) &&
+                      isValidStatus(request.resource.data.status);
+      allow update, delete: if false; // Logs are immutable
+    }
+
+    match /balanceLogs/{logId} {
+      allow read: if isSelf(resource.data.userId) || isAdmin();
+      allow create: if isAdmin();
+      allow update, delete: if false; // Logs are immutable
+    }
+
+    // --- Collection: products ---
+    match /products/{productId} {
+      allow read: if request.auth != null; // Any authenticated user can see products
+      allow write: if isAdmin(); // Only admins can manage products
+    }
+
+    // --- Collection: purchaseRequests ---
+    match /purchaseRequests/{requestId} {
+      allow read: if isSelf(resource.data.userId) || isAdmin();
+      allow create: if isSelf(request.resource.data.userId) &&
+                      request.resource.data.status == 'pending';
+      allow update: if isAdmin();
+      allow delete: if false; // Keep history
+    }
+    
+    // --- Collection: notifications ---
+    match /notifications/{notificationId} {
+        // READ: A user can read their own notifications. An admin can read any.
+        allow read: if isSelf(resource.data.userId) || isAdmin();
+        // WRITE: Only admins can create, update, or delete notifications.
+        allow write: if isAdmin();
+    }
+  }
+}

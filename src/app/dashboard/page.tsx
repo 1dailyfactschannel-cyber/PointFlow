@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useMemo, useEffect, useState } from "react";
+import { useMemo, useEffect, useState, useRef, ChangeEvent } from "react";
 import Image from "next/image";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -34,7 +34,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { collection, query, where, onSnapshot, Timestamp } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { db, auth } from "@/lib/firebase";
+import { EmailAuthProvider, reauthenticateWithCredential, updatePassword } from "firebase/auth";
 
 const profileSchema = z.object({
   firstName: z.string().min(1, "Имя обязательно."),
@@ -63,6 +64,7 @@ const statusMap: Record<PurchaseRequestStatus, { text: string; className: string
 export default function ProfilePage() {
   const { user, loading, updateUserProfile } = useAuth();
   const { toast } = useToast();
+  const avatarFileRef = useRef<HTMLInputElement>(null);
 
   const form = useForm<z.infer<typeof profileSchema>>({
     resolver: zodResolver(profileSchema),
@@ -94,21 +96,50 @@ export default function ProfilePage() {
     }
   }, [user, form]);
 
+  const handleProfileSubmit = (values: z.infer<typeof profileSchema>) => {
+      if (!user) return;
+      updateUserProfile(user.id, values);
+      toast({ title: "Профиль обновлен", description: "Ваши данные успешно сохранены." });
+  };
+  
+  const handlePasswordSubmit = async (values: z.infer<typeof passwordSchema>) => {
+    if (!auth.currentUser || !auth.currentUser.email) return;
+
+    const credential = EmailAuthProvider.credential(auth.currentUser.email, values.currentPassword);
+
+    try {
+        await reauthenticateWithCredential(auth.currentUser, credential);
+        await updatePassword(auth.currentUser, values.newPassword);
+        toast({ title: "Пароль изменен", description: "Ваш пароль был успешно обновлен." });
+        passwordForm.reset();
+    } catch (error) {
+        toast({
+            variant: "destructive",
+            title: "Ошибка",
+            description: "Не удалось изменить пароль. Пожалуйста, проверьте свой текущий пароль.",
+        });
+    }
+  };
+
+  const handleAvatarChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file && user) {
+        try {
+            await updateUserProfile(user.id, { avatarFile: file });
+            toast({ title: "Аватар обновлен", description: "Ваш аватар был успешно изменен." });
+        } catch (error) {
+            toast({
+                variant: "destructive",
+                title: "Ошибка",
+                description: "Не удалось загрузить аватар.",
+            });
+        }
+    }
+  };
 
   if (loading || !user) {
     return <ProfileSkeleton />;
   }
-
-  const handleProfileSubmit = (values: z.infer<typeof profileSchema>) => {
-    updateUserProfile(user.id, values);
-    toast({ title: "Профиль обновлен", description: "Ваши данные успешно сохранены." });
-  };
-  
-  const handlePasswordSubmit = (values: z.infer<typeof passwordSchema>) => {
-    console.log(values);
-    toast({ title: "Пароль изменен", description: "Ваш пароль был успешно обновлен." });
-    passwordForm.reset();
-  };
 
   return (
     <div className="container mx-auto max-w-4xl py-8 px-4 md:px-6">
@@ -119,7 +150,8 @@ export default function ProfilePage() {
                    <AvatarImage src={user.avatar} alt={`${user.firstName} ${user.lastName}`} />
                    <AvatarFallback>{user.firstName[0]}{user.lastName[0]}</AvatarFallback>
                 </Avatar>
-                <Button size="icon" variant="outline" className="absolute bottom-1 right-1 h-8 w-8 rounded-full bg-background">
+                <input type="file" ref={avatarFileRef} onChange={handleAvatarChange} accept="image/*" className="hidden" />
+                <Button size="icon" variant="outline" className="absolute bottom-1 right-1 h-8 w-8 rounded-full bg-background" onClick={() => avatarFileRef.current?.click()}>
                   <Camera className="h-4 w-4" />
                   <span className="sr-only">Сменить аватар</span>
                 </Button>

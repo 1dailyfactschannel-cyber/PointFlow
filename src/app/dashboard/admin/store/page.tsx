@@ -7,7 +7,7 @@ import { redirect } from 'next/navigation';
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { PlusCircle, MoreHorizontal, Edit, Trash2, Check, X, Clock, Award } from "lucide-react";
+import { PlusCircle, MoreHorizontal, Edit, Trash2, Check, X, Clock, Award, Loader2 } from "lucide-react";
 import { collection, addDoc, updateDoc, doc, deleteDoc, onSnapshot, query, where, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
@@ -84,18 +84,33 @@ const statusMap: Record<PurchaseRequestStatus, { text: string; className: string
 export default function AdminUnifiedManagementPage() {
     const { user: adminUser } = useAuth();
     const [activeTab, setActiveTab] = useState("products");
-
+    const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
 
     if (!adminUser || adminUser.role !== 'admin') {
         redirect('/dashboard');
     }
+
+    useEffect(() => {
+        const q = query(collection(db, "purchaseRequests"), where("status", "==", "pending"));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            setPendingRequestsCount(snapshot.size);
+        });
+        return () => unsubscribe();
+    }, []);
 
     return (
         <div className="container mx-auto py-8 px-4 md:px-6">
             <Tabs defaultValue="products" value={activeTab} onValueChange={setActiveTab}>
                 <TabsList className="grid w-full grid-cols-1 sm:grid-cols-3">
                     <TabsTrigger value="products">Товары</TabsTrigger>
-                    <TabsTrigger value="requests">Заявки</TabsTrigger>
+                    <TabsTrigger value="requests">
+                        Заявки
+                        {pendingRequestsCount > 0 && (
+                            <Badge className="ml-2 bg-primary text-primary-foreground">
+                                {pendingRequestsCount}
+                            </Badge>
+                        )}
+                    </TabsTrigger>
                     <TabsTrigger value="balance">Начисление баллов</TabsTrigger>
                 </TabsList>
                 <TabsContent value="products">
@@ -115,6 +130,7 @@ export default function AdminUnifiedManagementPage() {
 
 function ProductsTab() {
   const [products, setProducts] = useState<Product[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const { toast } = useToast();
@@ -123,7 +139,8 @@ function ProductsTab() {
     const q = query(collection(db, "products"));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setProducts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Product)));
-    });
+      setIsLoading(false);
+    }, () => setIsLoading(false));
     return () => unsubscribe();
   }, []);
 
@@ -178,40 +195,45 @@ function ProductsTab() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {products.map((product) => (
-              <TableRow key={product.id}>
-                <TableCell>
-                  <Image
-                    src={product.image}
-                    alt={product.name}
-                    width={64}
-                    height={64}
-                    className="rounded-md object-cover"
-                    data-ai-hint="product image"
-                  />
-                </TableCell>
-                <TableCell className="font-medium whitespace-nowrap">{product.name}</TableCell>
-                <TableCell className="text-muted-foreground max-w-sm truncate">{product.description}</TableCell>
-                <TableCell className="text-right font-mono whitespace-nowrap">{product.price.toLocaleString('ru-RU')}</TableCell>
-                <TableCell>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon">
-                        <MoreHorizontal className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent>
-                      <DropdownMenuItem onClick={() => openDialog(product)}>
-                        <Edit className="mr-2 h-4 w-4" /> Редактировать
-                      </DropdownMenuItem>
-                      <DropdownMenuItem className="text-destructive" onClick={() => handleDelete(product.id)}>
-                        <Trash2 className="mr-2 h-4 w-4" /> Удалить
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </TableCell>
-              </TableRow>
-            ))}
+            {isLoading ? (
+                <TableRow><TableCell colSpan={5} className="h-24 text-center"><Loader2 className="mx-auto h-8 w-8 animate-spin text-muted-foreground" /></TableCell></TableRow>
+            ) : products.length > 0 ? (
+                 products.map((product) => (
+                  <TableRow key={product.id}>
+                    <TableCell>
+                      <Image
+                        src={product.image}
+                        alt={product.name}
+                        width={64}
+                        height={64}
+                        className="rounded-md object-cover"
+                      />
+                    </TableCell>
+                    <TableCell className="font-medium whitespace-nowrap">{product.name}</TableCell>
+                    <TableCell className="text-muted-foreground max-w-sm truncate">{product.description}</TableCell>
+                    <TableCell className="text-right font-mono whitespace-nowrap">{product.price.toLocaleString('ru-RU')}</TableCell>
+                    <TableCell>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent>
+                          <DropdownMenuItem onClick={() => openDialog(product)}>
+                            <Edit className="mr-2 h-4 w-4" /> Редактировать
+                          </DropdownMenuItem>
+                          <DropdownMenuItem className="text-destructive" onClick={() => handleDelete(product.id)}>
+                            <Trash2 className="mr-2 h-4 w-4" /> Удалить
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                ))
+            ) : (
+                <TableRow><TableCell colSpan={5} className="h-24 text-center">Товары еще не добавлены.</TableCell></TableRow>
+            )}
           </TableBody>
         </Table>
         </div>
@@ -248,35 +270,54 @@ function ProductsTab() {
   );
 }
 
-
 function RequestsTab() {
   const [requests, setRequests] = useState<PurchaseRequest[]>([]);
-  const { users, updateUserBalance } = useAuth();
+  // REFACTORED: Remove `users` from useAuth
+  const { updateUserBalance } = useAuth(); 
+  // REFACTORED: Add local state for users and products
+  const [users, setUsers] = useState<User[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const { toast } = useToast();
 
   useEffect(() => {
-    const q = query(collection(db, "purchaseRequests"));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const requestData = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data(),
-        timestamp: doc.data().timestamp.toDate(),
-      } as PurchaseRequest));
-      setRequests(requestData);
-    });
-    return () => unsubscribe();
-  }, []);
+    // REFACTORED: Consolidate loading logic
+    let activeSubscriptions = 3;
+    const onDataLoaded = () => {
+        activeSubscriptions -= 1;
+        if (activeSubscriptions === 0) {
+            setIsLoading(false);
+        }
+    };
 
-  useEffect(() => {
-    const q = query(collection(db, "products"));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    const qRequests = query(collection(db, "purchaseRequests"));
+    const unsubRequests = onSnapshot(qRequests, (snapshot) => {
+      setRequests(snapshot.docs.map(doc => ({
+        id: doc.id, ...doc.data(), timestamp: doc.data().timestamp.toDate(),
+      } as PurchaseRequest)));
+      onDataLoaded();
+    }, onDataLoaded);
+
+    const qProducts = query(collection(db, "products"));
+    const unsubProducts = onSnapshot(qProducts, (snapshot) => {
       setProducts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Product)));
-    });
-    return () => unsubscribe();
+      onDataLoaded();
+    }, onDataLoaded);
+
+    // REFACTORED: Fetch users directly
+    const qUsers = query(collection(db, "users"));
+    const unsubUsers = onSnapshot(qUsers, (snapshot) => {
+        setUsers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User)));
+        onDataLoaded();
+    }, onDataLoaded);
+
+    return () => {
+      unsubRequests();
+      unsubProducts();
+      unsubUsers();
+    };
   }, []);
 
-  
   const handleRequestUpdate = async (requestId: string, newStatus: 'approved' | 'rejected') => {
     const request = requests.find(r => r.id === requestId);
     if (!request) return;
@@ -290,22 +331,21 @@ function RequestsTab() {
     }
     
     if (newStatus === 'approved' && user) {
-      const userRef = doc(db, 'users', user.id);
-      const userSnap = await getDoc(userRef);
-      const userData = userSnap.data() as User;
-
-      if (userData.balance < product.price) {
+      if (user.balance < product.price) {
         toast({
           variant: "destructive",
           title: "Недостаточно баллов",
           description: `У ${user.firstName} ${user.lastName} недостаточно баллов для покупки.`,
         });
+        // Reject the request if balance is insufficient
         await updateDoc(doc(db, "purchaseRequests", requestId), { status: 'rejected' });
         return;
       }
+      // If balance is sufficient, subtract points
       await updateUserBalance(user.id, product.price, 'subtract', `Покупка: ${product.name}`);
     }
     
+    // Update the request status
     await updateDoc(doc(db, "purchaseRequests", requestId), { status: newStatus });
     
     toast({
@@ -343,14 +383,17 @@ function RequestsTab() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {enrichedRequests.map(({ id, user, product, timestamp, status }) => (
+            {isLoading ? (
+                <TableRow><TableCell colSpan={6} className="h-24 text-center"><Loader2 className="mx-auto h-8 w-8 animate-spin text-muted-foreground" /></TableCell></TableRow>
+            ) : enrichedRequests.length > 0 ? (
+              enrichedRequests.map(({ id, user, product, timestamp, status }) => (
                 <TableRow key={id} className={cn(status === 'pending' && 'bg-blue-500/10')}>
                   <TableCell>
                     {user ? (
                       <div className="flex items-center gap-3">
-                        <Avatar status={user.status}>
+                        <Avatar>
                           <AvatarImage src={user.avatar} />
-                          <AvatarFallback>{user.firstName[0]}{user.lastName[0]}</AvatarFallback>
+                          <AvatarFallback>{user.firstName?.[0]}{user.lastName?.[0]}</AvatarFallback>
                         </Avatar>
                         <span className="whitespace-nowrap">{user.firstName} {user.lastName}</span>
                       </div>
@@ -380,7 +423,10 @@ function RequestsTab() {
                     )}
                   </TableCell>
                 </TableRow>
-              ))}
+              ))
+              ) : (
+                <TableRow><TableCell colSpan={6} className="h-24 text-center">Заявок на покупку пока нет.</TableCell></TableRow>
+              )}
             </TableBody>
           </Table>
           </div>
@@ -390,10 +436,26 @@ function RequestsTab() {
 }
 
 function BalanceTab() {
-  const { users, user: currentUser, updateUserBalance } = useAuth();
+  // REFACTORED: Remove `users` from useAuth, keep `currentUser` and `updateUserBalance`
+  const { user: currentUser, updateUserBalance } = useAuth();
   const { toast } = useToast();
+  
+  // REFACTORED: Add local state for users
+  const [users, setUsers] = useState<User[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [isBalanceDialogOpen, setIsBalanceDialogOpen] = useState(false);
+
+  useEffect(() => {
+      // REFACTORED: Fetch users directly from Firestore
+      const q = query(collection(db, "users"));
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+          setUsers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User)));
+          setIsLoading(false);
+      }, () => setIsLoading(false));
+      return () => unsubscribe();
+  }, []);
 
   const handleBalanceChange = (user: User) => {
     setSelectedUser(user);
@@ -433,13 +495,17 @@ function BalanceTab() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {users.map((user) => (
+            {isLoading ? (
+                <TableRow><TableCell colSpan={4} className="h-24 text-center"><Loader2 className="mx-auto h-8 w-8 animate-spin text-muted-foreground" /></TableCell></TableRow>
+            ) : users.length > 0 ? (
+              // REFACTORED: Map over local `users` state
+              users.map((user) => (
                 <TableRow key={user.id}>
                   <TableCell>
                     <div className="flex items-center gap-3">
-                      <Avatar status={user.status}>
+                      <Avatar>
                         <AvatarImage src={user.avatar} />
-                        <AvatarFallback>{user.firstName[0]}{user.lastName[0]}</AvatarFallback>
+                        <AvatarFallback>{user.firstName?.[0]}{user.lastName?.[0]}</AvatarFallback>
                       </Avatar>
                       <span className="whitespace-nowrap">{user.firstName} {user.lastName} {user.id === currentUser?.id && '(Вы)'}</span>
                     </div>
@@ -453,7 +519,10 @@ function BalanceTab() {
                     </Button>
                   </TableCell>
                 </TableRow>
-              ))}
+              ))
+            ) : (
+                <TableRow><TableCell colSpan={4} className="h-24 text-center">Сотрудники не найдены.</TableCell></TableRow>
+            )}
             </TableBody>
           </Table>
           </div>

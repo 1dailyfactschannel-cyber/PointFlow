@@ -1,44 +1,41 @@
+'use client';
 
-"use client"
+import * as React from 'react';
+import * as AvatarPrimitive from '@radix-ui/react-avatar';
+import { cva, type VariantProps } from 'class-variance-authority';
 
-import * as React from "react"
-import * as AvatarPrimitive from "@radix-ui/react-avatar"
+import { cn } from '@/lib/utils';
+import type { Status } from '@/lib/data';
 
-import { cn } from "@/lib/utils"
-import type { Status } from "@/lib/data"
+const avatarVariants = cva(
+  'relative flex h-10 w-10 shrink-0 overflow-hidden rounded-full',
+  {
+    variants: {
+      status: {
+        online: 'border-2 border-solid border-green-500',
+        offline: 'border-2 border-solid border-gray-400',
+        sick_leave: 'border-2 border-solid border-yellow-500',
+        vacation: 'border-2 border-solid border-blue-500',
+      } as Record<Status, string>,
+    },
+  }
+);
 
-
-const statusColorMap: Record<Status, string> = {
-  online: "border-green-500",
-  offline: "border-gray-500",
-  sick: "border-yellow-500",
-  vacation: "border-blue-500",
-};
-
-const statusBgColorMap: Record<Status, string> = {
-  online: "bg-green-500",
-  offline: "bg-gray-500",
-  sick: "bg-yellow-500",
-  vacation: "bg-blue-500",
-};
-
+export interface AvatarProps
+  extends React.ComponentPropsWithoutRef<typeof AvatarPrimitive.Root>,
+    VariantProps<typeof avatarVariants> {}
 
 const Avatar = React.forwardRef<
   React.ElementRef<typeof AvatarPrimitive.Root>,
-  React.ComponentPropsWithoutRef<typeof AvatarPrimitive.Root> & { status?: Status }
+  AvatarProps
 >(({ className, status, ...props }, ref) => (
   <AvatarPrimitive.Root
     ref={ref}
-    className={cn(
-      "relative flex h-10 w-10 shrink-0 overflow-hidden rounded-full",
-      status && "border-2",
-      status && statusColorMap[status],
-      className
-    )}
+    className={cn(avatarVariants({ status }), className)}
     {...props}
   />
-))
-Avatar.displayName = AvatarPrimitive.Root.displayName
+));
+Avatar.displayName = AvatarPrimitive.Root.displayName;
 
 const AvatarImage = React.forwardRef<
   React.ElementRef<typeof AvatarPrimitive.Image>,
@@ -46,11 +43,11 @@ const AvatarImage = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <AvatarPrimitive.Image
     ref={ref}
-    className={cn("aspect-square h-full w-full", className)}
+    className={cn('aspect-square h-full w-full', className)}
     {...props}
   />
-))
-AvatarImage.displayName = AvatarPrimitive.Image.displayName
+));
+AvatarImage.displayName = AvatarPrimitive.Image.displayName;
 
 const AvatarFallback = React.forwardRef<
   React.ElementRef<typeof AvatarPrimitive.Fallback>,
@@ -59,24 +56,12 @@ const AvatarFallback = React.forwardRef<
   <AvatarPrimitive.Fallback
     ref={ref}
     className={cn(
-      "flex h-full w-full items-center justify-center rounded-full bg-muted",
+      'flex h-full w-full items-center justify-center rounded-full bg-muted',
       className
     )}
     {...props}
   />
-))
-AvatarFallback.displayName = AvatarPrimitive.Fallback.displayName
+));
+AvatarFallback.displayName = AvatarPrimitive.Fallback.displayName;
 
-const AvatarStatusIndicator = ({ status, className }: { status: Status, className?: string }) => {
-  return (
-    <span className={cn(
-        "absolute bottom-0 right-0 block h-2.5 w-2.5 rounded-full border-2 border-background",
-        statusBgColorMap[status],
-        className
-    )} />
-  );
-}
-AvatarStatusIndicator.displayName = "AvatarStatusIndicator";
-
-
-export { Avatar, AvatarImage, AvatarFallback, AvatarStatusIndicator }
+export { Avatar, AvatarImage, AvatarFallback };

@@ -22,14 +22,25 @@ const nextConfig: NextConfig = {
         port: '',
         pathname: '/**',
       },
+      {
+        protocol: 'https',
+        hostname: 'help.m4bank.ru',
+        port: '',
+        pathname: '/**',
+      },
+      {
+        protocol: 'https',
+        hostname: 'i.pravatar.cc',
+        port: '',
+        pathname: '/**',
+      },
     ],
   },
-  devIndicators: {
-    allowedDevOrigins: [
-      '*.cloudworkstations.dev',
-      '*.firebase.studio',
-    ]
-  }
+  allowedDevOrigins: [
+    '*.cloudworkstations.dev',
+    '*.firebase.studio',
+    '*.cluster-kizalrzg35hz6u4i7pguwgt6ss.cloudworkstations.dev',
+  ]
 };
 
 export default nextConfig;

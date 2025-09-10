@@ -1,254 +1,284 @@
 
 "use client";
 
-import { useMemo } from 'react';
-import { redirect } from 'next/navigation';
-import { useAuth } from '@/context/auth-provider';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { User, StatusLog, BalanceLog } from '@/lib/data';
-import { format, differenceInMinutes, formatDistanceStrict } from 'date-fns';
-import { ru } from 'date-fns/locale';
-import { StatusBadge } from '@/components/status-badge';
+import { useState, useMemo, useEffect } from "react";
+import { Calendar } from "@/components/ui/calendar";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
+import type { User, StatusLog, BalanceLog } from "@/lib/data";
+import { collection, query, where, getDocs, Timestamp, orderBy, limit, onSnapshot } from "firebase/firestore";
+import { db } from "@/lib/firebase";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Button } from "@/components/ui/button";
+import { Calendar as CalendarIcon, Loader2, ChevronDown } from "lucide-react";
+import { format } from "date-fns";
+import { ru } from "date-fns/locale";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { StatusBadge } from "@/components/status-badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-
-type UnifiedLog = (
-    | ({ type: 'status' } & StatusLog) 
-    | ({ type: 'balance' } & BalanceLog)
-) & { admin?: User, user?: User };
-
-
-// Helper function to process logs and calculate work hours
-const processWorkLogs = (users: User[], statusLogs: StatusLog[]) => {
-    const dailyLogs: { [key: string]: { entries: StatusLog[], arrivals: Date[], departures: Date[] } } = {};
-
-    statusLogs.forEach(log => {
-        const logDate = log.timestamp instanceof Date ? log.timestamp : log.timestamp.toDate();
-        const dateKey = `${log.userId}_${format(logDate, 'yyyy-MM-dd')}`;
-        if (!dailyLogs[dateKey]) {
-            dailyLogs[dateKey] = { entries: [], arrivals: [], departures: [] };
-        }
-        dailyLogs[dateKey].entries.push(log);
-        if (log.status === 'online') {
-            dailyLogs[dateKey].arrivals.push(logDate);
-        } else if (log.status === 'offline') {
-            dailyLogs[dateKey].departures.push(logDate);
-        }
-    });
-
-    const workRecords = Object.keys(dailyLogs).map(key => {
-        const [userId, dateStr] = key.split('_');
-        const user = users.find(u => u.id === userId);
-        const { arrivals, departures } = dailyLogs[key];
-
-        const firstArrival = arrivals.length > 0 ? new Date(Math.min(...arrivals.map(d => d.getTime()))) : null;
-        const lastDeparture = departures.length > 0 ? new Date(Math.max(...departures.map(d => d.getTime()))) : null;
-
-        let totalMinutes = 0;
-        if (firstArrival && lastDeparture && lastDeparture > firstArrival) {
-            totalMinutes = differenceInMinutes(lastDeparture, firstArrival);
-        }
-
-        return {
-            userId: userId,
-            user,
-            date: dateStr,
-            arrival: firstArrival,
-            departure: lastDeparture,
-            totalHours: totalMinutes > 0 ? (totalMinutes / 60).toFixed(2) : '0.00',
-        };
-    }).filter(record => record.arrival || record.departure);
-
-    return workRecords.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-};
-
-
-export default function AnalyticsPage() {
-    const { user: adminUser, users, statusLogs, balanceLogs } = useAuth();
-
-    if (!adminUser || adminUser.role !== 'admin') {
-        redirect('/dashboard');
-    }
-
-    const workRecords = useMemo(() => processWorkLogs(users, statusLogs), [users, statusLogs]);
-
-    const adminAuditLogs = useMemo(() => {
-        const combinedLogs: UnifiedLog[] = [
-            ...statusLogs.map(log => ({ ...log, type: 'status' as const })),
-            ...balanceLogs.map(log => ({ ...log, type: 'balance' as const }))
-        ];
-
-        return combinedLogs
-            .map(log => ({
-                ...log,
-                admin: users.find(u => u.id === log.adminId),
-                user: users.find(u => u.id === log.userId)
-            }))
-            .sort((a, b) => {
-                const dateA = a.timestamp instanceof Date ? a.timestamp : a.timestamp.toDate();
-                const dateB = b.timestamp instanceof Date ? b.timestamp : b.timestamp.toDate();
-                return dateB.getTime() - dateA.getTime();
-            });
-
-    }, [users, statusLogs, balanceLogs]);
-
-
-    return (
-        <div className="container mx-auto py-8 px-4 md:px-6">
-            <Tabs defaultValue="timesheet">
-                <TabsList className="grid w-full grid-cols-2">
-                    <TabsTrigger value="timesheet">Учет рабочего времени</TabsTrigger>
-                    <TabsTrigger value="audit">Аудит администраторов</TabsTrigger>
-                </TabsList>
-                <TabsContent value="timesheet">
-                    <TimesheetTab records={workRecords} />
-                </TabsContent>
-                <TabsContent value="audit">
-                    <AdminAuditTab logs={adminAuditLogs} />
-                </TabsContent>
-            </Tabs>
-        </div>
-    );
+// --- WorkTimeLog Component (No changes needed here) ---
+interface TimeLogEntry {
+  user: User;
+  checkIn: Date | null;
+  checkOut: Date | null;
+  duration: number | null;
 }
 
-function TimesheetTab({ records }: { records: ReturnType<typeof processWorkLogs> }) {
-    return (
-        <Card className="mt-4">
-            <CardHeader>
+function WorkTimeLog() {
+  const [users, setUsers] = useState<User[]>([]);
+  const [date, setDate] = useState<Date>(new Date());
+  const [timeLogs, setTimeLogs] = useState<TimeLogEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadingUsers, setLoadingUsers] = useState(true);
+
+  useEffect(() => {
+    const unsubscribe = onSnapshot(collection(db, "users"), (snapshot) => {
+      const usersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
+      setUsers(usersData);
+      setLoadingUsers(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    const fetchLogs = async () => {
+      if (!date || loadingUsers) return;
+      setLoading(true);
+      const startOfDay = new Date(date); startOfDay.setHours(0, 0, 0, 0);
+      const endOfDay = new Date(date); endOfDay.setHours(23, 59, 59, 999);
+
+      const logs: TimeLogEntry[] = await Promise.all(users.map(async (user) => {
+        const qDay = query(
+          collection(db, "statusLogs"),
+          where("userId", "==", user.id),
+          where("timestamp", ">=", Timestamp.fromDate(startOfDay)),
+          where("timestamp", "<=", Timestamp.fromDate(endOfDay)),
+          orderBy("timestamp", "asc")
+        );
+        const daySnapshot = await getDocs(qDay);
+        const dayLogs = daySnapshot.docs.map(doc => ({...doc.data(), timestamp: doc.data().timestamp.toDate()}) as StatusLog);
+
+        const onlineLog = dayLogs.find(log => log.status === 'online');
+        const offlineLog = dayLogs.slice().reverse().find(log => log.status === 'offline');
+
+        if (!onlineLog) return null;
+
+        const checkIn = onlineLog.timestamp;
+        const checkOut = offlineLog ? offlineLog.timestamp : null;
+        const duration = checkIn && checkOut ? (checkOut.getTime() - checkIn.getTime()) / 3600000 : null;
+        
+        return { user, checkIn, checkOut, duration };
+      }));
+      
+      setTimeLogs(logs.filter(Boolean) as TimeLogEntry[]);
+      setLoading(false);
+    };
+
+    fetchLogs();
+  }, [date, users, loadingUsers]);
+  
+  const formatDuration = (hours: number) => {
+      const h = Math.floor(hours);
+      const m = Math.floor((hours * 60) % 60);
+      return `${h}ч ${m}м`;
+  }
+
+  return (
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+            <div>
                 <CardTitle>Учет рабочего времени</CardTitle>
-                <CardDescription>
-                    Время прихода, ухода и общее количество отработанных часов по сотрудникам.
-                </CardDescription>
-            </CardHeader>
-            <CardContent>
-                <div className="w-full overflow-x-auto">
+                <CardDescription>Просмотр активности сотрудников за выбранный день.</CardDescription>
+            </div>
+            <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                variant={"outline"}
+                className="w-[280px] justify-start text-left font-normal"
+              >
+                <CalendarIcon className="mr-2 h-4 w-4" />
+                {date ? format(date, "PPP", { locale: ru }) : <span>Выберите дату</span>}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0">
+              <Calendar
+                mode="single"
+                selected={date}
+                onSelect={(d) => setDate(d || new Date())}
+                initialFocus
+              />
+            </PopoverContent>
+          </Popover>
+        </CardHeader>
+        <CardContent>
+            {loading || loadingUsers ? <div className="flex items-center justify-center h-48"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div> : (
                 <Table>
                     <TableHeader>
                         <TableRow>
                             <TableHead>Сотрудник</TableHead>
-                            <TableHead>Дата</TableHead>
-                            <TableHead>Приход</TableHead>
-                            <TableHead>Уход</TableHead>
-                            <TableHead className="text-right">Отработано (часы)</TableHead>
+                            <TableHead>Время прихода</TableHead>
+                            <TableHead>Время ухода</TableHead>
+                            <TableHead className="text-right">Всего отработано времени</TableHead>
                         </TableRow>
                     </TableHeader>
                     <TableBody>
-                        {records.length > 0 ? records.map((record, index) => (
-                            <TableRow key={`${record.userId}-${record.date}-${index}`}>
-                                <TableCell>
-                                    {record.user && (
-                                         <div className="flex items-center gap-3">
-                                            <Avatar className="h-9 w-9" status={record.user.status}>
-                                                <AvatarImage src={record.user.avatar} />
-                                                <AvatarFallback>{record.user.firstName[0]}{record.user.lastName[0]}</AvatarFallback>
-                                            </Avatar>
-                                            <span className="whitespace-nowrap">{record.user.firstName} {record.user.lastName}</span>
+                         {timeLogs.length > 0 ? (
+                            timeLogs.map((log) => (
+                                <TableRow key={log.user.id}>
+                                    <TableCell>
+                                        <div className="flex items-center gap-3">
+                                            <Avatar><AvatarImage src={log.user.avatar} /><AvatarFallback>{log.user.firstName?.[0]}{log.user.lastName?.[0]}</AvatarFallback></Avatar>
+                                            <div><p className="font-medium">{log.user.firstName} {log.user.lastName}</p><p className="text-sm text-muted-foreground">{log.user.position}</p></div>
                                         </div>
-                                    )}
-                                </TableCell>
-                                <TableCell className="whitespace-nowrap">
-                                    {format(new Date(record.date), 'd MMMM yyyy', { locale: ru })}
-                                </TableCell>
-                                <TableCell className="font-mono whitespace-nowrap">
-                                    {record.arrival ? format(record.arrival, 'HH:mm:ss') : '–'}
-                                </TableCell>
-                                <TableCell className="font-mono whitespace-nowrap">
-                                    {record.departure ? format(record.departure, 'HH:mm:ss') : '–'}
-                                </TableCell>
-                                <TableCell className="text-right font-mono whitespace-nowrap">
-                                    {record.totalHours}
-                                </TableCell>
-                            </TableRow>
-                        )) : (
-                             <TableRow>
-                                <TableCell colSpan={5} className="h-24 text-center">
-                                    Нет данных для отображения.
-                                </TableCell>
-                            </TableRow>
-                        )}
+                                    </TableCell>
+                                    <TableCell>{log.checkIn ? format(log.checkIn, 'HH:mm:ss') : '-'}</TableCell>
+                                    <TableCell>{log.checkOut ? format(log.checkOut, 'HH:mm:ss') : '-'}</TableCell>
+                                    <TableCell className="text-right font-medium">{log.duration !== null ? formatDuration(log.duration) : '-'}</TableCell>
+                                </TableRow>
+                            ))
+                         ) : (
+                            <TableRow><TableCell colSpan={4} className="h-24 text-center">Нет данных за этот день.</TableCell></TableRow>
+                         )}
                     </TableBody>
                 </Table>
-                </div>
-            </CardContent>
-        </Card>
-    );
+            )}
+        </CardContent>
+      </Card>
+  );
 }
 
-function AdminAuditTab({ logs }: { logs: UnifiedLog[] }) {
+// --- AdminAudit Component (MODIFIED) ---
+type CombinedLog = (StatusLog | BalanceLog) & { logType: 'status' | 'balance' };
+const INITIAL_LOAD_LIMIT = 50;
+const LOAD_MORE_INCREMENT = 50;
 
-    const renderLogDetails = (log: UnifiedLog) => {
-        if (log.type === 'status') {
-            return (
-                <span>
-                    Изменил статус для <strong>{log.user?.firstName} {log.user?.lastName}</strong> на <StatusBadge status={log.status} />
-                </span>
-            );
-        }
-        if (log.type === 'balance') {
-            const actionText = log.action === 'add' ? 'Начислил' : 'Списал';
-            const pointsText = `${log.points} ${getPointsDeclension(log.points)}`;
-            return (
-                <span>
-                    {actionText} <strong>{pointsText}</strong> для <strong>{log.user?.firstName} {log.user?.lastName}</strong>.
-                    {log.comment && <span className="text-muted-foreground italic"> Комментарий: "{log.comment}"</span>}
-                </span>
-            )
-        }
-        return null;
-    }
+function AdminAudit() {
+    const [users, setUsers] = useState<User[]>([]);
+    const [allLogs, setAllLogs] = useState<CombinedLog[]>([]);
+    // MODIFIED: State for controlling the number of visible logs
+    const [displayCount, setDisplayCount] = useState(INITIAL_LOAD_LIMIT);
+    const [loading, setLoading] = useState(true);
+    const [loadingUsers, setLoadingUsers] = useState(true);
 
-     const getPointsDeclension = (points: number) => {
-        const cases = [2, 0, 1, 1, 1, 2];
-        const titles = ['балл', 'балла', 'баллов'];
-        return titles[(points % 100 > 4 && points % 100 < 20) ? 2 : cases[(points % 10 < 5) ? points % 10 : 5]];
-    };
+    useEffect(() => {
+        // Fetch a larger chunk of logs initially (e.g., 500) to allow for "load more"
+        const LOGS_TO_FETCH = 500;
+
+        const fetchAllData = async () => {
+            // Fetch all users
+            const unsubUsers = onSnapshot(collection(db, "users"), (snapshot) => {
+                setUsers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User)));
+                setLoadingUsers(false);
+            });
+
+            // Fetch logs
+            const statusLogsQuery = query(collection(db, 'statusLogs'), orderBy('timestamp', 'desc'), limit(LOGS_TO_FETCH));
+            const balanceLogsQuery = query(collection(db, 'balanceLogs'), orderBy('timestamp', 'desc'), limit(LOGS_TO_FETCH));
+
+            const [statusSnapshot, balanceSnapshot] = await Promise.all([ getDocs(statusLogsQuery), getDocs(balanceLogsQuery) ]);
+            
+            const statusLogs = statusSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id, timestamp: doc.data().timestamp.toDate(), logType: 'status' } as CombinedLog));
+            const balanceLogs = balanceSnapshot.docs.map(doc => ({ ...doc.data(), id: doc.id, timestamp: doc.data().timestamp.toDate(), logType: 'balance' } as CombinedLog));
+
+            const combined = [...statusLogs, ...balanceLogs]
+                .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
+                .slice(0, LOGS_TO_FETCH);
+            
+            setAllLogs(combined);
+            setLoading(false);
+
+            // Return a function to unsubscribe from user listener
+            return () => unsubUsers();
+        };
+        
+        const unsubscribeUsers = fetchAllData();
+
+        // Cleanup on component unmount
+        return () => {
+             unsubscribeUsers.then(unsub => unsub && unsub());
+        };
+    }, []);
+
+    const getUser = (userId: string) => users.find(u => u.id === userId);
+
+    // MODIFIED: Slice the logs based on the current display count
+    const visibleLogs = allLogs.slice(0, displayCount);
 
     return (
-        <Card className="mt-4">
+        <Card>
             <CardHeader>
                 <CardTitle>Аудит действий администраторов</CardTitle>
-                <CardDescription>
-                    Полный лог всех действий, выполненных администраторами системы.
-                </CardDescription>
+                <CardDescription>История последних административных действий в системе.</CardDescription>
             </CardHeader>
             <CardContent>
-                 <div className="max-h-[600px] overflow-y-auto">
-                    <div className="w-full overflow-x-auto">
-                    <Table>
+                 {(loading || loadingUsers) ? <div className="flex items-center justify-center h-48"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div> : (
+                     <Table>
                         <TableHeader>
                             <TableRow>
                                 <TableHead>Администратор</TableHead>
                                 <TableHead>Действие</TableHead>
-                                <TableHead className="text-right">Когда</TableHead>
+                                <TableHead>Цель</TableHead>
+                                <TableHead>Детали</TableHead>
+                                <TableHead className="text-right">Дата</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
-                           {logs.length > 0 ? logs.map((log) => (
-                               <TableRow key={`${log.type}-${log.id}`}>
-                                   <TableCell className="whitespace-nowrap">
-                                       {log.admin ? `${log.admin.firstName} ${log.admin.lastName}` : 'Система'}
-                                   </TableCell>
-                                   <TableCell>
-                                        {renderLogDetails(log)}
-                                   </TableCell>
-                                   <TableCell className="text-right text-muted-foreground whitespace-nowrap">
-                                       {formatDistanceStrict(log.timestamp, new Date(), { addSuffix: true, locale: ru })}
-                                   </TableCell>
-                               </TableRow>
-                           )) : (
-                                <TableRow>
-                                    <TableCell colSpan={3} className="h-24 text-center">
-                                        Действия администраторов еще не зафиксированы.
+                            {visibleLogs.length > 0 ? visibleLogs.map(log => {
+                                const admin = getUser(log.adminId);
+                                const targetUser = getUser(log.userId);
+                                return (
+                                <TableRow key={log.id}>
+                                    <TableCell>{admin ? `${admin.firstName} ${admin.lastName}` : 'Система'}</TableCell>
+                                    <TableCell>{log.logType === 'status' ? 'Изменение статуса' : (log.action === 'add' ? 'Начисление баллов' : 'Списание баллов')}</TableCell>
+                                    <TableCell>{targetUser ? `${targetUser.firstName} ${targetUser.lastName}` : 'N/A'}</TableCell>
+                                    <TableCell>
+                                        {log.logType === 'status' && <StatusBadge status={log.status} />}
+                                        {log.logType === 'balance' && (
+                                            <span className={log.action === 'add' ? 'text-green-500' : 'text-red-500'}>
+                                                {log.action === 'add' ? '+' : '-'}{log.points} баллов. {log.comment && `(${log.comment})`}
+                                            </span>
+                                        )}
                                     </TableCell>
+                                    <TableCell className="text-right text-muted-foreground">{format(log.timestamp, 'dd.MM.yyyy HH:mm')}</TableCell>
                                 </TableRow>
-                           )}
+                                )
+                            }) : (
+                                <TableRow><TableCell colSpan={5} className="h-24 text-center">Действия отсутствуют.</TableCell></TableRow>
+                            )}
                         </TableBody>
-                    </Table>
-                    </div>
-                </div>
+                     </Table>
+                 )}
             </CardContent>
+            {/* MODIFIED: Add a footer with a "Show More" button */}
+            {allLogs.length > displayCount && (
+                <CardFooter className="flex justify-center py-4">
+                    <Button variant="outline" onClick={() => setDisplayCount(prev => prev + LOAD_MORE_INCREMENT)}>
+                        <ChevronDown className="mr-2 h-4 w-4" />
+                        Показать еще
+                    </Button>
+                </CardFooter>
+            )}
         </Card>
-    );
+    )
+}
+
+
+export default function AnalyticsPage() {
+  return (
+    <div className="container mx-auto py-8 px-4 md:px-6">
+      <Tabs defaultValue="work-time">
+        <TabsList className="grid w-full grid-cols-2">
+          <TabsTrigger value="work-time">Учет рабочего времени</TabsTrigger>
+          <TabsTrigger value="admin-audit">Аудит администраторов</TabsTrigger>
+        </TabsList>
+        <TabsContent value="work-time" className="mt-6">
+          <WorkTimeLog />
+        </TabsContent>
+        <TabsContent value="admin-audit" className="mt-6">
+          <AdminAudit />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
 }
