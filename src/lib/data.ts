@@ -52,6 +52,9 @@ export interface PurchaseRequest {
     id: string;
     userId: string;
     productId: string;
+    productName: string;
+    productPrice: number;
+    quantity: number;
     status: 'pending' | 'approved' | 'rejected';
     timestamp: Date;
 }

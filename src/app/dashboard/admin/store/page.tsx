@@ -64,6 +64,7 @@ const productSchema = z.object({
   description: z.string().min(1, "Описание обязательно."),
   price: z.coerce.number().int().positive("Цена должна быть положительной."),
   image: z.string().url("Неверный URL изображения."),
+  stock: z.coerce.number().int().nonnegative("Запас должен быть неотрицательным числом."),
 });
 
 const balanceChangeSchema = z.object({
@@ -146,11 +147,12 @@ function ProductsTab() {
 
   const form = useForm<z.infer<typeof productSchema>>({
     resolver: zodResolver(productSchema),
+     defaultValues: { name: "", description: "", price: 0, image: "", stock: 0 },
   });
 
   const openDialog = (product: Product | null = null) => {
     setEditingProduct(product);
-    form.reset(product ? product : { name: "", description: "", price: 0, image: "https://picsum.photos/400/300" });
+    form.reset(product ? product : { name: "", description: "", price: 0, image: "https://picsum.photos/400/300", stock: 10 });
     setIsDialogOpen(true);
   }
 
@@ -191,19 +193,20 @@ function ProductsTab() {
               <TableHead>Название</TableHead>
               <TableHead>Описание</TableHead>
               <TableHead className="text-right">Цена</TableHead>
+              <TableHead className="text-right">Запас</TableHead>
               <TableHead className="w-[50px]"></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {isLoading ? (
-                <TableRow><TableCell colSpan={5} className="h-24 text-center"><Loader2 className="mx-auto h-8 w-8 animate-spin text-muted-foreground" /></TableCell></TableRow>
+                <TableRow><TableCell colSpan={6} className="h-24 text-center"><Loader2 className="mx-auto h-8 w-8 animate-spin text-muted-foreground" /></TableCell></TableRow>
             ) : products.length > 0 ? (
                  products.map((product) => (
                   <TableRow key={product.id}>
                     <TableCell>
                       <Image
-                        src={product.image}
-                        alt={product.name}
+                        src={product.image || ''}
+                        alt={product.name || 'product image'}
                         width={64}
                         height={64}
                         className="rounded-md object-cover"
@@ -211,7 +214,8 @@ function ProductsTab() {
                     </TableCell>
                     <TableCell className="font-medium whitespace-nowrap">{product.name}</TableCell>
                     <TableCell className="text-muted-foreground max-w-sm truncate">{product.description}</TableCell>
-                    <TableCell className="text-right font-mono whitespace-nowrap">{product.price.toLocaleString('ru-RU')}</TableCell>
+                    <TableCell className="text-right font-mono whitespace-nowrap">{(product.price || 0).toLocaleString('ru-RU')}</TableCell>
+                    <TableCell className="text-right font-mono whitespace-nowrap">{product.stock || 0}</TableCell>
                     <TableCell>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
@@ -232,7 +236,7 @@ function ProductsTab() {
                   </TableRow>
                 ))
             ) : (
-                <TableRow><TableCell colSpan={5} className="h-24 text-center">Товары еще не добавлены.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={6} className="h-24 text-center">Товары еще не добавлены.</TableCell></TableRow>
             )}
           </TableBody>
         </Table>
@@ -255,6 +259,9 @@ function ProductsTab() {
                         <FormField control={form.control} name="price" render={({ field }) => (
                             <FormItem><FormLabel>Цена</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem>
                         )}/>
+                         <FormField control={form.control} name="stock" render={({ field }) => (
+                            <FormItem><FormLabel>Запас</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem>
+                        )}/>
                         <FormField control={form.control} name="image" render={({ field }) => (
                             <FormItem><FormLabel>URL изображения</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
                         )}/>
@@ -272,16 +279,13 @@ function ProductsTab() {
 
 function RequestsTab() {
   const [requests, setRequests] = useState<PurchaseRequest[]>([]);
-  // REFACTORED: Remove `users` from useAuth
   const { updateUserBalance } = useAuth(); 
-  // REFACTORED: Add local state for users and products
   const [users, setUsers] = useState<User[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const { toast } = useToast();
 
   useEffect(() => {
-    // REFACTORED: Consolidate loading logic
     let activeSubscriptions = 3;
     const onDataLoaded = () => {
         activeSubscriptions -= 1;
@@ -304,7 +308,6 @@ function RequestsTab() {
       onDataLoaded();
     }, onDataLoaded);
 
-    // REFACTORED: Fetch users directly
     const qUsers = query(collection(db, "users"));
     const unsubUsers = onSnapshot(qUsers, (snapshot) => {
         setUsers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User)));
@@ -325,27 +328,29 @@ function RequestsTab() {
     const user = users.find(u => u.id === request.userId);
     const product = products.find(p => p.id === request.productId);
 
-    if (!product) {
-         toast({ variant: "destructive", title: "Товар не найден" });
+    if (!product || !user) {
+         toast({ variant: "destructive", title: "Ошибка", description: "Пользователь или товар не найден." });
          return;
     }
     
-    if (newStatus === 'approved' && user) {
-      if (user.balance < product.price) {
+    const totalCost = (product.price || 0) * (request.quantity || 0);
+
+    if (newStatus === 'approved') {
+      if ((user.balance || 0) < totalCost) {
         toast({
           variant: "destructive",
           title: "Недостаточно баллов",
-          description: `У ${user.firstName} ${user.lastName} недостаточно баллов для покупки.`,
+          description: `У ${user.firstName} ${user.lastName} не хватает ${totalCost - (user.balance || 0)} баллов.`,
         });
-        // Reject the request if balance is insufficient
-        await updateDoc(doc(db, "purchaseRequests", requestId), { status: 'rejected' });
         return;
       }
-      // If balance is sufficient, subtract points
-      await updateUserBalance(user.id, product.price, 'subtract', `Покупка: ${product.name}`);
+      
+      await updateUserBalance(user.id, totalCost, 'subtract', `Покупка: ${product.name} (x${request.quantity || 0})`);
+
+      const newStock = (product.stock || 0) - (request.quantity || 0);
+      await updateDoc(doc(db, "products", product.id), { stock: newStock });
     }
     
-    // Update the request status
     await updateDoc(doc(db, "purchaseRequests", requestId), { status: newStatus });
     
     toast({
@@ -376,7 +381,8 @@ function RequestsTab() {
               <TableRow>
                 <TableHead>Сотрудник</TableHead>
                 <TableHead>Товар</TableHead>
-                <TableHead className="text-right">Цена</TableHead>
+                <TableHead className="text-center">Кол-во</TableHead>
+                <TableHead className="text-right">Сумма</TableHead>
                 <TableHead>Дата</TableHead>
                 <TableHead>Статус</TableHead>
                 <TableHead className="text-right">Действия</TableHead>
@@ -384,15 +390,15 @@ function RequestsTab() {
             </TableHeader>
             <TableBody>
             {isLoading ? (
-                <TableRow><TableCell colSpan={6} className="h-24 text-center"><Loader2 className="mx-auto h-8 w-8 animate-spin text-muted-foreground" /></TableCell></TableRow>
+                <TableRow><TableCell colSpan={7} className="h-24 text-center"><Loader2 className="mx-auto h-8 w-8 animate-spin text-muted-foreground" /></TableCell></TableRow>
             ) : enrichedRequests.length > 0 ? (
-              enrichedRequests.map(({ id, user, product, timestamp, status }) => (
+              enrichedRequests.map(({ id, user, product, timestamp, status, quantity }) => (
                 <TableRow key={id} className={cn(status === 'pending' && 'bg-blue-500/10')}>
                   <TableCell>
                     {user ? (
                       <div className="flex items-center gap-3">
                         <Avatar>
-                          <AvatarImage src={user.avatar} />
+                          <AvatarImage src={user.avatar || undefined} />
                           <AvatarFallback>{user.firstName?.[0]}{user.lastName?.[0]}</AvatarFallback>
                         </Avatar>
                         <span className="whitespace-nowrap">{user.firstName} {user.lastName}</span>
@@ -400,12 +406,13 @@ function RequestsTab() {
                     ) : 'Неизвестно'}
                   </TableCell>
                   <TableCell className="font-medium whitespace-nowrap">{product?.name || 'Неизвестно'}</TableCell>
-                  <TableCell className="text-right font-mono whitespace-nowrap">{product?.price.toLocaleString('ru-RU') || '–'}</TableCell>
+                   <TableCell className="text-center font-mono">{quantity || 0}</TableCell>
+                  <TableCell className="text-right font-mono whitespace-nowrap">{((product?.price || 0) * (quantity || 0)).toLocaleString('ru-RU')}</TableCell>
                   <TableCell className="text-muted-foreground whitespace-nowrap">{timestamp.toLocaleDateString('ru-RU')}</TableCell>
                   <TableCell>
-                    <Badge className={cn('text-white whitespace-nowrap', statusMap[status].className)}>
-                      {statusMap[status].icon}
-                      {statusMap[status].text}
+                    <Badge className={cn('text-white whitespace-nowrap', statusMap[status]?.className)}>
+                      {statusMap[status]?.icon}
+                      {statusMap[status]?.text}
                     </Badge>
                   </TableCell>
                   <TableCell className="text-right">
@@ -425,7 +432,7 @@ function RequestsTab() {
                 </TableRow>
               ))
               ) : (
-                <TableRow><TableCell colSpan={6} className="h-24 text-center">Заявок на покупку пока нет.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={7} className="h-24 text-center">Заявок на покупку пока нет.</TableCell></TableRow>
               )}
             </TableBody>
           </Table>
@@ -436,11 +443,9 @@ function RequestsTab() {
 }
 
 function BalanceTab() {
-  // REFACTORED: Remove `users` from useAuth, keep `currentUser` and `updateUserBalance`
   const { user: currentUser, updateUserBalance } = useAuth();
   const { toast } = useToast();
   
-  // REFACTORED: Add local state for users
   const [users, setUsers] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -448,7 +453,6 @@ function BalanceTab() {
   const [isBalanceDialogOpen, setIsBalanceDialogOpen] = useState(false);
 
   useEffect(() => {
-      // REFACTORED: Fetch users directly from Firestore
       const q = query(collection(db, "users"));
       const unsubscribe = onSnapshot(q, (snapshot) => {
           setUsers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User)));
@@ -498,20 +502,19 @@ function BalanceTab() {
             {isLoading ? (
                 <TableRow><TableCell colSpan={4} className="h-24 text-center"><Loader2 className="mx-auto h-8 w-8 animate-spin text-muted-foreground" /></TableCell></TableRow>
             ) : users.length > 0 ? (
-              // REFACTORED: Map over local `users` state
               users.map((user) => (
                 <TableRow key={user.id}>
                   <TableCell>
                     <div className="flex items-center gap-3">
                       <Avatar>
-                        <AvatarImage src={user.avatar} />
+                        <AvatarImage src={user.avatar || undefined} />
                         <AvatarFallback>{user.firstName?.[0]}{user.lastName?.[0]}</AvatarFallback>
                       </Avatar>
                       <span className="whitespace-nowrap">{user.firstName} {user.lastName} {user.id === currentUser?.id && '(Вы)'}</span>
                     </div>
                   </TableCell>
                   <TableCell className="text-muted-foreground whitespace-nowrap">{user.position}</TableCell>
-                  <TableCell className="text-right font-mono whitespace-nowrap">{user.balance.toLocaleString('ru-RU')}</TableCell>
+                  <TableCell className="text-right font-mono whitespace-nowrap">{(user.balance || 0).toLocaleString('ru-RU')}</TableCell>
                   <TableCell className="text-right">
                     <Button variant="outline" size="sm" onClick={() => handleBalanceChange(user)}>
                         <Award className="mr-2 h-4 w-4" />
@@ -557,7 +560,7 @@ function BalanceChangeDialog({ isOpen, onOpenChange, user, onSubmit }: { isOpen:
                 <DialogHeader>
                     <DialogTitle>Изменить баланс для {user.firstName} {user.lastName}</DialogTitle>
                     <DialogDescription>
-                        Текущий баланс: {user.balance.toLocaleString('ru-RU')} баллов.
+                        Текущий баланс: {(user.balance || 0).toLocaleString('ru-RU')} баллов.
                     </DialogDescription>
                 </DialogHeader>
                  <Form {...form}>

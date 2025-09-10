@@ -21,6 +21,7 @@ const MAX_LOGS_TO_FETCH = 500;
 export default function EmployeeAnalyticsPage() {
     const { user } = useAuth();
     
+    const [activeTab, setActiveTab] = useState('status');
     const [allStatusLogs, setAllStatusLogs] = useState<StatusLog[]>([]);
     const [allBalanceLogs, setAllBalanceLogs] = useState<BalanceLog[]>([]);
     const [allUsers, setAllUsers] = useState<User[]>([]);
@@ -29,13 +30,15 @@ export default function EmployeeAnalyticsPage() {
     const [balanceDisplayCount, setBalanceDisplayCount] = useState(INITIAL_LOAD_LIMIT);
 
     const [isLoading, setIsLoading] = useState(true);
+    const [isBalanceLoading, setIsBalanceLoading] = useState(false);
+    const [balanceLogsFetched, setBalanceLogsFetched] = useState(false);
 
     useEffect(() => {
         if (!user) return;
 
         setIsLoading(true);
         let loadedCount = 0;
-        const totalToLoad = 3;
+        const totalToLoad = 2; // Users and Status Logs
         const onDataLoaded = () => {
             loadedCount++;
             if (loadedCount === totalToLoad) setIsLoading(false);
@@ -56,34 +59,42 @@ export default function EmployeeAnalyticsPage() {
             onDataLoaded();
         }, () => onDataLoaded());
 
-        const balanceLogsQuery = query(collection(db, "balanceLogs"), where("userId", "==", user.id), orderBy("timestamp", "desc"), limit(MAX_LOGS_TO_FETCH));
-        const unsubBalanceLogs = onSnapshot(balanceLogsQuery, (snapshot) => {
-            const logs = snapshot.docs
-                .map(doc => {
-                    const data = doc.data();
-                    if (data.timestamp && typeof data.timestamp.toDate === 'function') {
-                        return { ...data, id: doc.id, timestamp: data.timestamp.toDate() } as BalanceLog;
-                    }
-                    return null;
-                })
-                .filter((log): log is BalanceLog => log !== null);
-            setAllBalanceLogs(logs);
-            onDataLoaded();
-        }, () => onDataLoaded());
-        
         const usersQuery = query(collection(db, "users"));
         const unsubUsers = onSnapshot(usersQuery, (snapshot) => {
-            const users = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
-            setAllUsers(users);
+            setAllUsers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User)));
             onDataLoaded();
         }, () => onDataLoaded());
 
         return () => {
             unsubStatusLogs();
-            unsubBalanceLogs();
             unsubUsers();
         };
     }, [user]);
+
+    useEffect(() => {
+        if (activeTab === 'balance' && !balanceLogsFetched && user) {
+            setIsBalanceLoading(true);
+            setBalanceLogsFetched(true);
+
+            const balanceLogsQuery = query(collection(db, "balanceLogs"), where("userId", "==", user.id), orderBy("timestamp", "desc"), limit(MAX_LOGS_TO_FETCH));
+            const unsubscribe = onSnapshot(balanceLogsQuery, (snapshot) => {
+                const logs = snapshot.docs
+                    .map(doc => {
+                        const data = doc.data();
+                        if (data.timestamp && typeof data.timestamp.toDate === 'function') {
+                            return { ...data, id: doc.id, timestamp: data.timestamp.toDate() } as BalanceLog;
+                        }
+                        return null;
+                    })
+                    .filter((log): log is BalanceLog => log !== null);
+                setAllBalanceLogs(logs);
+                setIsBalanceLoading(false);
+            }, () => setIsBalanceLoading(false));
+
+            return () => unsubscribe();
+        }
+    }, [activeTab, balanceLogsFetched, user]);
+
 
     if (!user && !isLoading) {
         redirect('/login');
@@ -108,13 +119,12 @@ export default function EmployeeAnalyticsPage() {
                     {isLoading ? (
                         <div className="flex justify-center items-center h-96"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
                     ) : (
-                        <Tabs defaultValue="status">
+                        <Tabs defaultValue="status" onValueChange={setActiveTab} value={activeTab}>
                             <TabsList className="grid w-full grid-cols-2">
                                 <TabsTrigger value="status">История статусов</TabsTrigger>
                                 <TabsTrigger value="balance">Аудит баллов</TabsTrigger>
                             </TabsList>
 
-                            {/* Status Logs Tab */}
                             <TabsContent value="status" className="mt-4">
                                 <Card>
                                     <CardContent className="p-0">
@@ -141,33 +151,36 @@ export default function EmployeeAnalyticsPage() {
                                 </Card>
                             </TabsContent>
 
-                            {/* Balance Logs Tab */}
                             <TabsContent value="balance" className="mt-4">
-                               <Card>
-                                    <CardContent className="p-0">
-                                        <div className="max-h-[60vh] overflow-y-auto">
-                                            <Table>
-                                                <TableHeader className="sticky top-0 bg-background"><TableRow><TableHead>Действие</TableHead><TableHead>Баллы</TableHead><TableHead>Комментарий</TableHead><TableHead>Кем выполнено</TableHead><TableHead>Дата и время</TableHead></TableRow></TableHeader>
-                                                <TableBody>
-                                                    {visibleBalanceLogs.length > 0 ? visibleBalanceLogs.map((log) => (
-                                                        <TableRow key={log.id}>
-                                                            <TableCell className="whitespace-nowrap">{log.action === 'add' ? 'Начисление' : 'Списание'}</TableCell>
-                                                            <TableCell className={`font-mono whitespace-nowrap ${log.action === 'add' ? 'text-green-500' : 'text-red-500'}`}>{log.action === 'add' ? '+' : '-'}{log.points.toLocaleString('ru-RU')}</TableCell>
-                                                            <TableCell className="text-muted-foreground">{log.comment || '–'}</TableCell>
-                                                            <TableCell className="whitespace-nowrap">{getAdminName(log.adminId)}</TableCell>
-                                                            <TableCell className="whitespace-nowrap">{log.timestamp.toLocaleString('ru-RU')}</TableCell>
-                                                        </TableRow>
-                                                    )) : <TableRow><TableCell colSpan={5} className="h-24 text-center">История операций с баллами пуста.</TableCell></TableRow>}
-                                                </TableBody>
-                                            </Table>
-                                        </div>
-                                    </CardContent>
-                                    {allBalanceLogs.length > visibleBalanceLogs.length && (
-                                       <CardFooter className="flex justify-center py-4">
-                                            <Button variant="outline" onClick={() => setBalanceDisplayCount(prev => prev + LOAD_MORE_INCREMENT)}><ChevronDown className="mr-2 h-4 w-4" />Показать еще</Button>
-                                        </CardFooter>
-                                    )}
-                                </Card>
+                                {isBalanceLoading ? (
+                                     <div className="flex justify-center items-center h-96"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
+                                ) : (
+                                    <Card>
+                                        <CardContent className="p-0">
+                                            <div className="max-h-[60vh] overflow-y-auto">
+                                                <Table>
+                                                    <TableHeader className="sticky top-0 bg-background"><TableRow><TableHead>Действие</TableHead><TableHead>Баллы</TableHead><TableHead>Комментарий</TableHead><TableHead>Кем выполнено</TableHead><TableHead>Дата и время</TableHead></TableRow></TableHeader>
+                                                    <TableBody>
+                                                        {visibleBalanceLogs.length > 0 ? visibleBalanceLogs.map((log) => (
+                                                            <TableRow key={log.id}>
+                                                                <TableCell className="whitespace-nowrap">{log.action === 'add' ? 'Начисление' : 'Списание'}</TableCell>
+                                                                <TableCell className={`font-mono whitespace-nowrap ${log.action === 'add' ? 'text-green-500' : 'text-red-500'}`}>{log.action === 'add' ? '+' : '-'}{log.points.toLocaleString('ru-RU')}</TableCell>
+                                                                <TableCell className="text-muted-foreground">{log.comment || '–'}</TableCell>
+                                                                <TableCell className="whitespace-nowrap">{getAdminName(log.adminId)}</TableCell>
+                                                                <TableCell className="whitespace-nowrap">{log.timestamp.toLocaleString('ru-RU')}</TableCell>
+                                                            </TableRow>
+                                                        )) : <TableRow><TableCell colSpan={5} className="h-24 text-center">История операций с баллами пуста.</TableCell></TableRow>}
+                                                    </TableBody>
+                                                </Table>
+                                            </div>
+                                        </CardContent>
+                                        {allBalanceLogs.length > visibleBalanceLogs.length && (
+                                        <CardFooter className="flex justify-center py-4">
+                                                <Button variant="outline" onClick={() => setBalanceDisplayCount(prev => prev + LOAD_MORE_INCREMENT)}><ChevronDown className="mr-2 h-4 w-4" />Показать еще</Button>
+                                            </CardFooter>
+                                        )}
+                                    </Card>
+                                )}
                             </TabsContent>
                         </Tabs>
                     )}

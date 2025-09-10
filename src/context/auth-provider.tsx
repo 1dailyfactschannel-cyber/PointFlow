@@ -23,8 +23,8 @@ interface AuthContextType {
   loading: boolean;
   signInWithEmailAndPassword: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
-  updateStatus: (newStatus: Status, comment?: string) => Promise<void>;
-  updateUserStatus: (userId: string, status: Status, comment?: string) => Promise<void>;
+  updateStatus: (newStatus: Status, comment?: string) => void;
+  updateUserStatus: (userId: string, status: Status, comment?: string) => void;
   updateUserBalance: (userId: string, points: number, action: 'add' | 'subtract', comment?: string) => Promise<void>;
   updateUserProfile: (userId: string, data: UserUpdateData) => Promise<void>;
   updateUserDisabledStatus: (userId: string, disabled: boolean) => Promise<void>;
@@ -112,30 +112,61 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const updateStatus = useCallback(async (newStatus: Status, comment?: string) => {
+ const updateStatus = useCallback((newStatus: Status, comment?: string) => {
     if (!user) return;
-    const userDocRef = doc(db, "users", user.id);
-    const dataToUpdate: { status: Status, statusComment?: string | any } = { status: newStatus };
+
+    const originalUser = { ...user };
+    const optimisticUser: User = { ...user, status: newStatus };
+    
     if (comment !== undefined && comment !== null) {
-      dataToUpdate.statusComment = comment;
+      optimisticUser.statusComment = comment;
     } else {
-      dataToUpdate.statusComment = deleteField();
+      delete optimisticUser.statusComment;
     }
-    await updateDoc(userDocRef, dataToUpdate);
-    await logStatusChange(user.id, user.id, newStatus);
+    
+    setUser(optimisticUser);
+
+    (async () => {
+      try {
+        const userDocRef = doc(db, "users", user.id);
+        const dataToUpdate: { status: Status; statusComment?: string | any } = { status: newStatus };
+        
+        if (comment !== undefined && comment !== null) {
+          dataToUpdate.statusComment = comment;
+        } else {
+          dataToUpdate.statusComment = deleteField();
+        }
+        
+        await updateDoc(userDocRef, dataToUpdate);
+        await logStatusChange(user.id, user.id, newStatus);
+      } catch (error) {
+        console.error("Status update failed, reverting:", error);
+        setUser(originalUser);
+      }
+    })();
   }, [user, logStatusChange]);
 
-  const updateUserStatus = useCallback(async (userId: string, status: Status, comment?: string) => {
-    if (!user || user.role !== 'admin') return;
-    const userDocRef = doc(db, "users", userId);
-    const dataToUpdate: { status: Status, statusComment?: string | any } = { status: status };
-    if (comment !== undefined && comment !== null) {
-      dataToUpdate.statusComment = comment;
-    } else {
-      dataToUpdate.statusComment = deleteField();
-    }
-    await updateDoc(userDocRef, dataToUpdate);
-    await logStatusChange(userId, user.id, status);
+  const updateUserStatus = useCallback((userId: string, status: Status, comment?: string) => {
+      if (!user || user.role !== 'admin') {
+        console.error("Permission denied: Not an admin.");
+        return;
+      };
+
+      (async () => {
+        try {
+            const userDocRef = doc(db, "users", userId);
+            const dataToUpdate: { status: Status, statusComment?: string | any } = { status: status };
+            if (comment !== undefined && comment !== null) {
+              dataToUpdate.statusComment = comment;
+            } else {
+              dataToUpdate.statusComment = deleteField();
+            }
+            await updateDoc(userDocRef, dataToUpdate);
+            await logStatusChange(userId, user.id, status);
+        } catch (error) {
+            console.error(`Failed to update status for user ${userId}:`, error);
+        }
+      })();
   }, [user, logStatusChange]);
 
   const uploadAvatar = useCallback(async (file: File): Promise<string> => {
@@ -233,13 +264,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!user || user.role !== 'admin') {
       throw new Error("Only admins can fetch user logs.");
     }
-    const statusLogsQuery = query(collection(db, "statusLogs"), where("userId", "==", userId), orderBy('timestamp', 'desc'), limit(100));
+    const statusLogsQuery = query(collection(db, "statusLogs"), where("userId", "===", userId), orderBy('timestamp', 'desc'), limit(100));
     const statusLogsSnapshot = await getDocs(statusLogsQuery);
     const statusLogsData = statusLogsSnapshot.docs.map(doc => {
       const data = doc.data();
       return { id: doc.id, ...data, timestamp: data.timestamp?.toDate() } as unknown as StatusLog;
     });
-    const balanceLogsQuery = query(collection(db, "balanceLogs"), where("userId", "==", userId), orderBy('timestamp', 'desc'), limit(100));
+    const balanceLogsQuery = query(collection(db, "balanceLogs"), where("userId", "===", userId), orderBy('timestamp', 'desc'), limit(100));
     const balanceLogsSnapshot = await getDocs(balanceLogsQuery);
     const balanceLogsData = balanceLogsSnapshot.docs.map(doc => {
       const data = doc.data();
