@@ -1,14 +1,14 @@
 
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { type Product, type PurchaseRequest } from "@/lib/data";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/context/auth-provider";
-import { Wallet, CheckCircle, Clock, Plus, Minus } from "lucide-react";
+import { Wallet, CheckCircle, Clock, Plus, Minus, Loader2 } from "lucide-react";
 import { collection, addDoc, query, onSnapshot, where, serverTimestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -25,6 +25,8 @@ export default function StorePage() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [quantity, setQuantity] = useState(1);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const isSubmittingRef = useRef(false);
 
   useEffect(() => {
     if (loading) return;
@@ -60,7 +62,7 @@ export default function StorePage() {
   }, [user]);
 
   const handleRequest = async (product: Product | null, quant: number) => {
-    if (!user || !product) return;
+    if (!user || !product || isSubmittingRef.current) return;
 
     if (quant <= 0) {
         toast({ variant: "destructive", title: "Неверное количество", description: "Количество должно быть больше нуля." });
@@ -74,23 +76,34 @@ export default function StorePage() {
         toast({ variant: "destructive", title: "Недостаточно средств", description: "У вас не хватает баллов для этого заказа." });
         return;
     }
+    
+    isSubmittingRef.current = true;
+    setIsSubmitting(true);
 
-    await addDoc(collection(db, "purchaseRequests"), {
-        userId: user.id,
-        productId: product.id,
-        productName: product.name,
-        productPrice: product.price,
-        quantity: quant,
-        status: 'pending',
-        timestamp: serverTimestamp(),
-    });
+    try {
+        await addDoc(collection(db, "purchaseRequests"), {
+            userId: user.id,
+            productId: product.id,
+            productName: product.name,
+            productPrice: product.price,
+            quantity: quant,
+            status: 'pending',
+            timestamp: serverTimestamp(),
+        });
 
-    toast({
-      title: "Заявка отправлена!",
-      description: `Ваша заявка на ${quant} шт. \"${product.name}\" отправлена.`
-    });
+        toast({
+          title: "Заявка отправлена!",
+          description: `Ваша заявка на ${quant} шт. \"${product.name}\" отправлена.`
+        });
 
-    setIsDialogOpen(false);
+        setIsDialogOpen(false);
+    } catch (error) {
+        console.error("Error creating request:", error);
+        toast({ variant: "destructive", title: "Ошибка", description: "Не удалось отправить заявку." });
+    } finally {
+        isSubmittingRef.current = false;
+        setIsSubmitting(false);
+    }
   };
   
   const openRequestDialog = (product: Product) => {
@@ -181,7 +194,7 @@ export default function StorePage() {
             );
         })}
         </div>
-         <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+         <Dialog open={isDialogOpen} onOpenChange={(open) => { if (isSubmitting && !open) return; setIsDialogOpen(open); }}>
             <DialogContent className="sm:max-w-[425px]">
                 {selectedProduct && (
                     <>
@@ -225,9 +238,10 @@ export default function StorePage() {
                         <DialogFooter>
                             <Button
                                 onClick={() => handleRequest(selectedProduct, quantity)}
-                                disabled={!user || user.balance < selectedProduct.price * quantity || quantity > selectedProduct.stock}
+                                disabled={isSubmitting || !user || user.balance < selectedProduct.price * quantity || quantity > selectedProduct.stock}
                             >
-                                Подать заявку
+                                {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                {isSubmitting ? 'Подача заявки...' : 'Подать заявку'}
                             </Button>
                         </DialogFooter>
                     </>

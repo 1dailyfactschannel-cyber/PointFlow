@@ -129,7 +129,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const unsubscribeBalanceLogs = onSnapshot(balanceLogsQuery, async (snapshot) => {
       const logsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as BalanceLog));
       
-      const userIds = [...new Set(logsData.map(log => [log.userId, log.adminId]).flat())];
+      const purchaseLogs = logsData.filter(log => log.comment && log.comment.trim() !== '');
+
+      const userIds = [...new Set(purchaseLogs.map(log => [log.userId, log.adminId]).flat())];
       if (userIds.length === 0) {
         setPurchaseHistory([]);
         return;
@@ -149,11 +151,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           });
       }
 
-      const history: PurchaseRecord[] = logsData.map(log => ({
+      const history: PurchaseRecord[] = purchaseLogs.map(log => ({
         id: log.id,
         user: usersFromDb[log.userId],
         admin: usersFromDb[log.adminId],
-        item: log.comment || "Неизвестная покупка",
+        item: log.comment as string,
         cost: log.points,
         date: log.timestamp
       }));
@@ -170,7 +172,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const handleSignIn = useCallback(async (email: string, password: string) => {
     initializeFirebaseServices();
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      const userDocRef = doc(db, "users", userCredential.user.uid);
+      await updateDoc(userDocRef, {
+        lastSeen: new Date().toISOString(),
+        status: 'online'
+      });
     } catch (error: any) {
       if (error.code === 'auth/wrong-password' || error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential') {
         throw new Error('Неверный логин или пароль.');
@@ -205,7 +212,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     (async () => {
       try {
         const userDocRef = doc(db, "users", user.id);
-        const dataToUpdate: { status: Status; statusComment?: string | any } = { status: newStatus };
+        const dataToUpdate: { status: Status; lastSeen: string; statusComment?: string | any } = {
+          status: newStatus,
+          lastSeen: new Date().toISOString()
+        };
         
         if (comment !== undefined && comment !== null) {
           dataToUpdate.statusComment = comment;
@@ -231,7 +241,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       (async () => {
         try {
             const userDocRef = doc(db, "users", userId);
-            const dataToUpdate: { status: Status, statusComment?: string | any } = { status: status };
+            const dataToUpdate: { status: Status; lastSeen: string; statusComment?: string | any } = {
+              status: status,
+              lastSeen: new Date().toISOString()
+            };
             if (comment !== undefined && comment !== null) {
               dataToUpdate.statusComment = comment;
             } else {

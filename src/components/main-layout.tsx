@@ -6,7 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   BarChart2, Store, Users, LogOut, Wallet, User as UserIcon, PanelLeft, 
   ShoppingBag, Trophy, Bell, Check, Circle, HelpCircle, XCircle, 
-  Coffee, Plane, Edit, Computer
+  Coffee, Plane, Edit, Computer, Loader2
 } from "lucide-react";
 import type { ReactNode } from "react";
 import React, { useEffect, useState } from "react";
@@ -87,6 +87,7 @@ export default function MainLayout({ children }: { children: ReactNode }) {
   const [isStatusDialogOpen, setStatusDialogOpen] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState<Status>('online');
   const [statusComment, setStatusComment] = useState("");
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -115,6 +116,7 @@ export default function MainLayout({ children }: { children: ReactNode }) {
   }, [lastNotification]);
 
   const handleLogout = async () => {
+    setIsLoggingOut(true);
     await signOut();
     router.push('/login');
   }
@@ -317,7 +319,15 @@ export default function MainLayout({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-screen w-full flex-col">
         {headerContent}
-        <main className="flex-1">{children}</main>
+        <main className="flex-1">
+            {isLoggingOut ? (
+                <div className="flex h-[calc(100vh-4rem)] items-center justify-center">
+                    <Loader2 className="h-16 w-16 animate-spin text-muted-foreground" />
+                </div>
+            ) : (
+                children
+            )}
+        </main>
     </div>
   );
 }

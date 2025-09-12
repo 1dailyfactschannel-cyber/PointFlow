@@ -164,7 +164,7 @@ export default function EmployeesPage() {
                                 <a href={`https://t.me/${user.telegram.replace('@', '')}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="text-muted-foreground hover:text-primary transition-colors" aria-label="Telegram"><Send className="h-4 w-4" /></a>
                             )}
                         </div>
-                        {user.lastSeen && <p className="text-xs text-muted-foreground">был(а) в сети {formatDistanceToNow(new Date(user.lastSeen), { addSuffix: true, locale: ru })}</p>}
+                        {user.status !== 'online' && user.lastSeen && <p className="text-xs text-muted-foreground">был(а) в сети {formatDistanceToNow(new Date(user.lastSeen), { addSuffix: true, locale: ru })}</p>}
                     </div>
                 </div>
             </TableCell>
@@ -323,7 +323,7 @@ function AddEmployeeDialog({ isOpen, onClose, onSave }: { isOpen: boolean, onClo
 function EmployeeEditDialog({ isOpen, onClose, employee, onSave }: { isOpen: boolean, onClose: () => void, employee: User, onSave: (userId: string, data: UserUpdateData) => void }) {
   const [preview, setPreview] = useState<string | null>(employee.avatar);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const form = useForm<z.infer<typeof employeeProfileSchema>>({ resolver: zodResolver(employeeProfileSchema), values: { firstName: employee.firstName, lastName: employee.lastName, position: employee.position, email: employee.email, role: employee.role, telegram: employee.telegram || "", isRemote: employee.isRemote || false } });
+  const form = useForm<z.infer<typeof employeeProfileSchema>>({ resolver: zodResolver(employeeProfileSchema), defaultValues: { firstName: employee.firstName, lastName: employee.lastName, position: employee.position, email: employee.email, role: employee.role, telegram: employee.telegram || "", isRemote: employee.isRemote || false } });
   const onSubmit = (values: z.infer<typeof employeeProfileSchema>) => { onSave(employee.id, values); };
   const onAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => { const file = e.target.files?.[0]; if (file) { form.setValue('avatarFile', file); setPreview(URL.createObjectURL(file)); } };
   return (
@@ -350,7 +350,7 @@ function EmployeeEditDialog({ isOpen, onClose, employee, onSave }: { isOpen: boo
               <FormField control={form.control} name="firstName" render={({ field }) => (<FormItem><FormLabel>Имя</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)}/>
               <FormField control={form.control} name="lastName" render={({ field }) => (<FormItem><FormLabel>Фамилия</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)}/>
             </div>
-            <FormField control={form.control} name="position" render={({ field }) => (<FormItem><FormLabel>Должность</Label><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)}/>
+            <FormField control={form.control} name="position" render={({ field }) => (<FormItem><FormLabel>Должность</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)}/>
             <FormField control={form.control} name="email" render={({ field }) => (<FormItem><FormLabel>Email</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)}/>
             <FormField control={form.control} name="role" render={({ field }) => (<FormItem><FormLabel>Роль</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue placeholder="Выберите роль" /></SelectTrigger></FormControl><SelectContent><SelectItem value="employee">Сотрудник</SelectItem><SelectItem value="admin">Администратор</SelectItem></SelectContent></Select><FormMessage /></FormItem>)}/>
             <FormField control={form.control} name="telegram" render={({ field }) => (<FormItem><FormLabel>Telegram</FormLabel><FormControl><Input {...field} placeholder="@username" /></FormControl><FormMessage /></FormItem>)}/>
