@@ -8,6 +8,8 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { collection, query, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { formatDistanceToNow } from "date-fns";
+import { ru } from "date-fns/locale";
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -155,11 +157,14 @@ export default function EmployeesPage() {
             <TableCell className="cursor-pointer hover:underline py-2" onClick={() => handleOpenAudit(user)}>
                 <div className="flex items-center gap-3">
                     <Avatar status={user.status}><AvatarImage src={user.avatar} className="object-cover" /><AvatarFallback>{user.firstName?.[0]}{user.lastName?.[0]}</AvatarFallback></Avatar>
-                    <div className="flex items-center gap-2">
-                        <span className="font-medium whitespace-nowrap">{user.firstName} {user.lastName}</span>
-                        {user.telegram && (
-                            <a href={`https://t.me/${user.telegram.replace('@', '')}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="text-muted-foreground hover:text-primary transition-colors" aria-label="Telegram"><Send className="h-4 w-4" /></a>
-                        )}
+                    <div>
+                        <div className="flex items-center gap-2">
+                            <span className="font-medium whitespace-nowrap">{user.firstName} {user.lastName}</span>
+                            {user.telegram && (
+                                <a href={`https://t.me/${user.telegram.replace('@', '')}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="text-muted-foreground hover:text-primary transition-colors" aria-label="Telegram"><Send className="h-4 w-4" /></a>
+                            )}
+                        </div>
+                        {user.lastSeen && <p className="text-xs text-muted-foreground">был(а) в сети {formatDistanceToNow(new Date(user.lastSeen), { addSuffix: true, locale: ru })}</p>}
                     </div>
                 </div>
             </TableCell>
@@ -345,7 +350,7 @@ function EmployeeEditDialog({ isOpen, onClose, employee, onSave }: { isOpen: boo
               <FormField control={form.control} name="firstName" render={({ field }) => (<FormItem><FormLabel>Имя</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)}/>
               <FormField control={form.control} name="lastName" render={({ field }) => (<FormItem><FormLabel>Фамилия</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)}/>
             </div>
-            <FormField control={form.control} name="position" render={({ field }) => (<FormItem><FormLabel>Должность</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)}/>
+            <FormField control={form.control} name="position" render={({ field }) => (<FormItem><FormLabel>Должность</Label><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)}/>
             <FormField control={form.control} name="email" render={({ field }) => (<FormItem><FormLabel>Email</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>)}/>
             <FormField control={form.control} name="role" render={({ field }) => (<FormItem><FormLabel>Роль</FormLabel><Select onValueChange={field.onChange} defaultValue={field.value}><FormControl><SelectTrigger><SelectValue placeholder="Выберите роль" /></SelectTrigger></FormControl><SelectContent><SelectItem value="employee">Сотрудник</SelectItem><SelectItem value="admin">Администратор</SelectItem></SelectContent></Select><FormMessage /></FormItem>)}/>
             <FormField control={form.control} name="telegram" render={({ field }) => (<FormItem><FormLabel>Telegram</FormLabel><FormControl><Input {...field} placeholder="@username" /></FormControl><FormMessage /></FormItem>)}/>

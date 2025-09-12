@@ -175,7 +175,7 @@ export default function MainLayout({ children }: { children: ReactNode }) {
                   className="group flex h-10 w-10 shrink-0 items-center justify-center gap-2 rounded-full bg-primary text-lg font-semibold text-primary-foreground md:text-base"
                 >
                   <Logo className="h-5 w-5 transition-all group-hover:scale-110" />
-                  <span className="sr-only">StatusCraft</span>
+                  <span className="sr-only">PointFlow</span>
                 </Link>
                 {navItems.map((item) => (
                   <NavLink key={item.href} href={item.href} className="flex items-center gap-4 px-2.5">
@@ -189,7 +189,7 @@ export default function MainLayout({ children }: { children: ReactNode }) {
           
           <Link href="/dashboard" className="mr-6 flex items-center gap-2">
             <Logo className="h-6 w-6 text-primary" />
-            <span className="hidden font-bold sm:inline-block">StatusCraft</span>
+            <span className="hidden font-bold sm:inline-block">PointFlow</span>
           </Link>
           
           <nav className="hidden items-center gap-6 text-sm md:flex">

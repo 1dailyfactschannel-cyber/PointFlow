@@ -5,7 +5,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { AuthProvider } from "@/context/auth-provider"; // Импортируем AuthProvider
 
 export const metadata: Metadata = {
-  title: 'StatusCraft',
+  title: 'PointFlow',
   description: 'Приложение для идентификации статусов сотрудников',
 };
 

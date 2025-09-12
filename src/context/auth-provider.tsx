@@ -47,6 +47,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const handleSignOut = useCallback(async () => {
     const authInstance = getAuth();
     try {
+      if (authInstance.currentUser) {
+        const userDocRef = doc(db, "users", authInstance.currentUser.uid);
+        await updateDoc(userDocRef, { status: 'offline', lastSeen: new Date().toISOString() });
+      }
       await firebaseSignOut(authInstance);
     } catch (error) {
       console.error("Error during sign out:", error);
@@ -285,7 +289,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       throw new Error("Только администраторы могут изменять статус блокировки.");
     }
     const userDocRef = doc(db, "users", userId);
-    await updateDoc(userDocRef, { disabled: disabled });
+    const updateData: { disabled: boolean, lastSeen?: string, status?: Status } = { disabled };
+    if (disabled) {
+        updateData.lastSeen = new Date().toISOString();
+        updateData.status = 'offline';
+    }
+    await updateDoc(userDocRef, updateData);
   }, [user]);
 
   const createNewUser = useCallback(async (data: NewUserFormData) => {
@@ -307,7 +316,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         firstName: data.firstName || '', lastName: data.lastName || '', email: data.email,
         role: data.role || 'employee', position: data.position || '', telegram: data.telegram || '',
         status: 'offline', balance: 0, avatar: `https://i.pravatar.cc/150?u=${newFirebaseUser.uid}`,
-        isRemote: data.isRemote || false, disabled: false,
+        isRemote: data.isRemote || false, disabled: false, lastSeen: new Date().toISOString()
       };
       await setDoc(newUserDocRef, newUser);
     } finally {

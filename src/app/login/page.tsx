@@ -105,7 +105,7 @@ export default function LoginPage() {
             <div className="mb-4 flex justify-center">
                <Logo className="h-10 w-10 text-primary" />
             </div>
-            <CardTitle className="text-2xl">Вход в StatusCraft</CardTitle>
+            <CardTitle className="text-2xl">Вход в PointFlow</CardTitle>
             <CardDescription>
               Введите свои данные для входа в аккаунт
             </CardDescription>

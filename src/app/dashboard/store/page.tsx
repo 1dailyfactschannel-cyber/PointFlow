@@ -158,9 +158,14 @@ export default function StorePage() {
                             priority={index < 12} 
                         />
                         </div>
-                        <CardTitle className="pt-2 text-xs font-semibold leading-tight truncate h-8 flex items-center">
-                            {product.name}
-                        </CardTitle>
+                        <div className="pt-2">
+                            <CardTitle className="text-sm font-semibold h-10">
+                                {product.name}
+                            </CardTitle>
+                            <CardDescription className="text-xs text-muted-foreground h-12">
+                                {product.description}
+                            </CardDescription>
+                        </div>
                     </CardHeader>
                     <div className="flex-grow"></div>
                     <CardFooter className="p-2 pt-2 flex items-center justify-between">

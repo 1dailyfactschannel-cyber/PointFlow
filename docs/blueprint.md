@@ -1,4 +1,4 @@
-# **App Name**: StatusCraft
+# **App Name**: PointFlow
 
 ## Core Features:
 
