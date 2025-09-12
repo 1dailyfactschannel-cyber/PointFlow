@@ -58,3 +58,12 @@ export interface PurchaseRequest {
     status: 'pending' | 'approved' | 'rejected';
     timestamp: Date;
 }
+
+export interface PurchaseRecord {
+    id: string;
+    user: User;
+    admin: User;
+    item: string;
+    cost: number;
+    date: any;
+}

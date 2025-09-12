@@ -50,6 +50,7 @@ const adminNavItems = [
   { href: "/dashboard/admin/analytics", icon: BarChart2, label: "Аналитика" },
   { href: "/dashboard/admin/notifications", icon: Bell, label: "Уведомления" },
   { href: "/dashboard/store", icon: ShoppingBag, label: "Магазин" },
+  { href: "/dashboard/community", icon: Trophy, label: "Сообщество" },
 ];
 
 const statusConfig: Record<Status, { label: string; icon: React.ElementType; colorClassName: string; }> = {
@@ -77,7 +78,7 @@ function NavLink({ href, children, className }: { href: string, children: ReactN
 }
 
 export default function MainLayout({ children }: { children: ReactNode }) {
-  const { user, loading, signOut, updateStatus, updateUserProfile } = useAuth();
+  const { user, loading, signOut, updateStatus, updateUserProfile, isAdmin } = useAuth();
   const { toast } = useToast();
   const router = useRouter();
 
@@ -141,7 +142,7 @@ export default function MainLayout({ children }: { children: ReactNode }) {
     }
   };
 
-  const navItems = user?.role === "admin" ? adminNavItems : employeeNavItems;
+  const navItems = isAdmin ? adminNavItems : employeeNavItems;
 
   const currentStatusConfig = user ? statusConfig[user.status] : null;
   const CurrentStatusIcon = currentStatusConfig?.icon || HelpCircle;
@@ -203,7 +204,7 @@ export default function MainLayout({ children }: { children: ReactNode }) {
                   <span className="font-semibold text-sm sm:text-base">{user.balance.toLocaleString('ru-RU')}</span>
               </div>
 
-            <NotificationBell notifications={notifications} unreadCount={unreadCount} onOpen={markAsRead} />
+            <NotificationBell notifications={notifications} unreadCount={unreadCount} onOpen={markAsRead} isAdmin={isAdmin} />
             <ThemeToggle />
             
             <Dialog open={isStatusDialogOpen} onOpenChange={setStatusDialogOpen}>
@@ -321,7 +322,56 @@ export default function MainLayout({ children }: { children: ReactNode }) {
   );
 }
 
-function NotificationBell({ /* props */ }) { 
-    // ... implementation 
-    return null;
+interface NotificationBellProps {
+  notifications: StoredNotification[];
+  unreadCount: number;
+  onOpen: () => void;
+  isAdmin: boolean;
+}
+
+function NotificationBell({ notifications, unreadCount, onOpen, isAdmin }: NotificationBellProps) {
+  return (
+    <DropdownMenu onOpenChange={(open) => open && onOpen()}>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" size="icon" className="relative">
+          <Bell className="h-5 w-5" />
+          {unreadCount > 0 && (
+            <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-xs text-white">
+              {unreadCount}
+            </span>
+          )}
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-80 md:w-96">
+        <DropdownMenuLabel>Уведомления</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {notifications.length === 0 ? (
+          <p className="p-4 text-sm text-center text-muted-foreground">Нет новых уведомлений</p>
+        ) : (
+          <div className="max-h-[60vh] overflow-y-auto">
+            {notifications.map((notification) => (
+              <DropdownMenuItem key={notification.id} className={cn("flex items-start gap-3 p-3", !notification.read && "bg-blue-50/50")}>
+                <div className={cn("h-2 w-2 rounded-full mt-2", notification.read ? "bg-transparent" : "bg-blue-500")} />
+                <div className="flex-1 space-y-1">
+                  <p className="font-semibold text-sm">{notification.title}</p>
+                  <p className="text-xs text-muted-foreground">{notification.body}</p>
+                  <p className="text-xs text-muted-foreground/70 pt-1">
+                    {formatDistanceToNow(notification.timestamp, { addSuffix: true, locale: ru })}
+                  </p>
+                </div>
+              </DropdownMenuItem>
+            ))}
+          </div>
+        )}
+        {isAdmin && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem asChild className="flex justify-center">
+                <Link href="/dashboard/admin/notifications">Показать все</Link>
+            </DropdownMenuItem>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
 }

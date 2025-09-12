@@ -7,7 +7,7 @@ import { onAuthStateChanged, signInWithEmailAndPassword, getAuth, createUserWith
 import { initializeApp } from "firebase/app";
 import { doc, onSnapshot, collection, query, updateDoc, addDoc, serverTimestamp, writeBatch, getDoc, where, getDocs, setDoc, orderBy, limit, deleteField } from "firebase/firestore";
 import { auth, db, initializeFirebaseServices } from "@/lib/firebase";
-import type { User, Status, StatusLog, BalanceLog } from "@/lib/data";
+import type { User, Status, StatusLog, BalanceLog, PurchaseRecord } from "@/lib/data";
 
 export interface NewUserFormData extends Partial<User> {
   email: string;
@@ -20,6 +20,9 @@ export interface UserUpdateData extends Partial<User> {
 
 interface AuthContextType {
   user: User | null;
+  users: User[];
+  purchaseHistory: PurchaseRecord[];
+  isAdmin: boolean;
   loading: boolean;
   signInWithEmailAndPassword: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
@@ -36,6 +39,9 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [users, setUsers] = useState<User[]>([]);
+  const [purchaseHistory, setPurchaseHistory] = useState<PurchaseRecord[]>([]);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const handleSignOut = useCallback(async () => {
@@ -46,6 +52,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       console.error("Error during sign out:", error);
     } finally {
       setUser(null);
+      setIsAdmin(false);
     }
   }, []);
 
@@ -67,7 +74,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             setLoading(false);
           } else if (docSnap.exists()) {
             unsubDoc = onSnapshot(userDocRef, (snap) => {
-              setUser({ id: snap.id, ...snap.data() } as User);
+              const userData = snap.data();
+              if (userData) {
+                  setUser({ id: snap.id, ...userData } as User);
+                  setIsAdmin(userData.role === 'admin');
+              }
               setLoading(false);
             });
           } else {
@@ -81,6 +92,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       } else {
         setUser(null);
+        setIsAdmin(false);
         setLoading(false);
       }
     });
@@ -90,6 +102,66 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       unsubDoc();
     };
   }, [handleSignOut]);
+
+  useEffect(() => {
+    if (!user) {
+        setUsers([]);
+        return;
+    }
+
+    const usersQuery = query(collection(db, "users"), where("disabled", "==", false));
+    const unsubscribeUsers = onSnapshot(usersQuery, (snapshot) => {
+        const allUsers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
+        setUsers(allUsers);
+    });
+
+    const balanceLogsQuery = query(
+      collection(db, "balanceLogs"),
+      where("action", "==", "subtract"),
+      orderBy("timestamp", "desc"),
+      limit(20)
+    );
+
+    const unsubscribeBalanceLogs = onSnapshot(balanceLogsQuery, async (snapshot) => {
+      const logsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as BalanceLog));
+      
+      const userIds = [...new Set(logsData.map(log => [log.userId, log.adminId]).flat())];
+      if (userIds.length === 0) {
+        setPurchaseHistory([]);
+        return;
+      }
+
+      const usersFromDb: Record<string, User> = {};
+      const chunks = [];
+      for (let i = 0; i < userIds.length; i += 10) {
+          chunks.push(userIds.slice(i, i + 10));
+      }
+
+      for (const chunk of chunks) {
+          const userQuery = query(collection(db, "users"), where("__name__", "in", chunk));
+          const userSnap = await getDocs(userQuery);
+          userSnap.forEach(doc => {
+              usersFromDb[doc.id] = { id: doc.id, ...doc.data() } as User;
+          });
+      }
+
+      const history: PurchaseRecord[] = logsData.map(log => ({
+        id: log.id,
+        user: usersFromDb[log.userId],
+        admin: usersFromDb[log.adminId],
+        item: log.comment || "Неизвестная покупка",
+        cost: log.points,
+        date: log.timestamp
+      }));
+
+      setPurchaseHistory(history);
+    });
+
+    return () => {
+      unsubscribeUsers();
+      unsubscribeBalanceLogs();
+    };
+  }, [user]);
 
   const handleSignIn = useCallback(async (email: string, password: string) => {
     initializeFirebaseServices();
@@ -264,13 +336,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!user || user.role !== 'admin') {
       throw new Error("Only admins can fetch user logs.");
     }
-    const statusLogsQuery = query(collection(db, "statusLogs"), where("userId", "===", userId), orderBy('timestamp', 'desc'), limit(100));
+    const statusLogsQuery = query(collection(db, "statusLogs"), where("userId", "==", userId), orderBy('timestamp', 'desc'), limit(100));
     const statusLogsSnapshot = await getDocs(statusLogsQuery);
     const statusLogsData = statusLogsSnapshot.docs.map(doc => {
       const data = doc.data();
       return { id: doc.id, ...data, timestamp: data.timestamp?.toDate() } as unknown as StatusLog;
     });
-    const balanceLogsQuery = query(collection(db, "balanceLogs"), where("userId", "===", userId), orderBy('timestamp', 'desc'), limit(100));
+    const balanceLogsQuery = query(collection(db, "balanceLogs"), where("userId", "==", userId), orderBy('timestamp', 'desc'), limit(100));
     const balanceLogsSnapshot = await getDocs(balanceLogsQuery);
     const balanceLogsData = balanceLogsSnapshot.docs.map(doc => {
       const data = doc.data();
@@ -280,7 +352,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [user]);
 
   const value = useMemo(() => ({ 
-    user, 
+    user,
+    users,
+    purchaseHistory,
+    isAdmin,
     loading,
     signInWithEmailAndPassword: handleSignIn,
     signOut: handleSignOut,
@@ -292,7 +367,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     createNewUser,
     getLogsForUser,
   }), [
-    user, loading, handleSignIn, handleSignOut, updateStatus, 
+    user, users, purchaseHistory, isAdmin, loading, handleSignIn, handleSignOut, updateStatus, 
     updateUserStatus, updateUserBalance, updateUserProfile, 
     updateUserDisabledStatus, createNewUser, getLogsForUser
   ]);
