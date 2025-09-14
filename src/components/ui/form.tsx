@@ -80,7 +80,7 @@ const FormItem = React.forwardRef<
 
   return (
     <FormItemContext.Provider value={{ id }}>
-      <div ref={ref} className={cn("space-y-2", className)} {...props} />
+      <div ref={ref} className={cn("space-y-2", className)} {...props} suppressHydrationWarning/>
     </FormItemContext.Provider>
   )
 })
@@ -98,6 +98,7 @@ const FormLabel = React.forwardRef<
       className={cn(error && "text-destructive", className)}
       htmlFor={formItemId}
       {...props}
+      suppressHydrationWarning
     />
   )
 })
@@ -120,6 +121,7 @@ const FormControl = React.forwardRef<
       }
       aria-invalid={!!error}
       {...props}
+      suppressHydrationWarning
     />
   )
 })
@@ -137,6 +139,7 @@ const FormDescription = React.forwardRef<
       id={formDescriptionId}
       className={cn("text-sm text-muted-foreground", className)}
       {...props}
+      suppressHydrationWarning
     />
   )
 })
@@ -159,6 +162,7 @@ const FormMessage = React.forwardRef<
       id={formMessageId}
       className={cn("text-sm font-medium text-destructive", className)}
       {...props}
+      suppressHydrationWarning
     >
       {body}
     </p>

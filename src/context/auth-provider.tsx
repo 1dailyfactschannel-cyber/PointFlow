@@ -49,7 +49,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       if (authInstance.currentUser) {
         const userDocRef = doc(db, "users", authInstance.currentUser.uid);
-        await updateDoc(userDocRef, { status: 'offline', lastSeen: new Date().toISOString() });
+        await updateDoc(userDocRef, { lastSeen: new Date().toISOString() });
       }
       await firebaseSignOut(authInstance);
     } catch (error) {
@@ -80,8 +80,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             unsubDoc = onSnapshot(userDocRef, (snap) => {
               const userData = snap.data();
               if (userData) {
-                  setUser({ id: snap.id, ...userData } as User);
-                  setIsAdmin(userData.role === 'admin');
+                  const currentUser = { id: snap.id, ...userData } as User;
+                  setUser(currentUser);
+                  const currentIsAdmin = userData.role === 'admin';
+                  setIsAdmin(currentIsAdmin);
               }
               setLoading(false);
             });
@@ -108,66 +110,72 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [handleSignOut]);
 
   useEffect(() => {
-    if (!user) {
+    let unsubscribeUsers = () => {};
+    let unsubscribeBalanceLogs = () => {};
+
+    if (user && isAdmin) {
+        const usersQuery = query(collection(db, "users"), where("disabled", "==", false));
+        unsubscribeUsers = onSnapshot(usersQuery, (snapshot) => {
+            const allUsers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
+            setUsers(allUsers);
+        });
+    } else {
         setUsers([]);
-        return;
     }
 
-    const usersQuery = query(collection(db, "users"), where("disabled", "==", false));
-    const unsubscribeUsers = onSnapshot(usersQuery, (snapshot) => {
-        const allUsers = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as User));
-        setUsers(allUsers);
-    });
+    if (user) {
+        const balanceLogsQuery = query(
+          collection(db, "balanceLogs"),
+          where("action", "==", "subtract"),
+          orderBy("timestamp", "desc"),
+          limit(20)
+        );
 
-    const balanceLogsQuery = query(
-      collection(db, "balanceLogs"),
-      where("action", "==", "subtract"),
-      orderBy("timestamp", "desc"),
-      limit(20)
-    );
+        unsubscribeBalanceLogs = onSnapshot(balanceLogsQuery, async (snapshot) => {
+          const logsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as BalanceLog));
+          
+          const purchaseLogs = logsData.filter(log => log.comment && log.comment.trim() !== '');
 
-    const unsubscribeBalanceLogs = onSnapshot(balanceLogsQuery, async (snapshot) => {
-      const logsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as BalanceLog));
-      
-      const purchaseLogs = logsData.filter(log => log.comment && log.comment.trim() !== '');
+          const userIds = [...new Set(purchaseLogs.map(log => [log.userId, log.adminId]).flat())].filter(Boolean);
+          if (userIds.length === 0) {
+            setPurchaseHistory([]);
+            return;
+          }
 
-      const userIds = [...new Set(purchaseLogs.map(log => [log.userId, log.adminId]).flat())];
-      if (userIds.length === 0) {
-        setPurchaseHistory([]);
-        return;
-      }
+          const usersFromDb: Record<string, User> = {};
+          const chunks = [];
+          for (let i = 0; i < userIds.length; i += 10) {
+              chunks.push(userIds.slice(i, i + 10));
+          }
 
-      const usersFromDb: Record<string, User> = {};
-      const chunks = [];
-      for (let i = 0; i < userIds.length; i += 10) {
-          chunks.push(userIds.slice(i, i + 10));
-      }
+          for (const chunk of chunks) {
+              if(chunk.length > 0) {
+                const userQuery = query(collection(db, "users"), where("__name__", "in", chunk));
+                const userSnap = await getDocs(userQuery);
+                userSnap.forEach(doc => {
+                    usersFromDb[doc.id] = { id: doc.id, ...doc.data() } as User;
+                });
+              }
+          }
 
-      for (const chunk of chunks) {
-          const userQuery = query(collection(db, "users"), where("__name__", "in", chunk));
-          const userSnap = await getDocs(userQuery);
-          userSnap.forEach(doc => {
-              usersFromDb[doc.id] = { id: doc.id, ...doc.data() } as User;
-          });
-      }
+          const history: PurchaseRecord[] = purchaseLogs.map(log => ({
+            id: log.id,
+            user: usersFromDb[log.userId],
+            admin: usersFromDb[log.adminId],
+            item: log.comment as string,
+            cost: log.points,
+            date: log.timestamp
+          }));
 
-      const history: PurchaseRecord[] = purchaseLogs.map(log => ({
-        id: log.id,
-        user: usersFromDb[log.userId],
-        admin: usersFromDb[log.adminId],
-        item: log.comment as string,
-        cost: log.points,
-        date: log.timestamp
-      }));
-
-      setPurchaseHistory(history);
-    });
+          setPurchaseHistory(history);
+        });
+    }
 
     return () => {
       unsubscribeUsers();
       unsubscribeBalanceLogs();
     };
-  }, [user]);
+  }, [user, isAdmin]);
 
   const handleSignIn = useCallback(async (email: string, password: string) => {
     initializeFirebaseServices();
@@ -176,7 +184,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const userDocRef = doc(db, "users", userCredential.user.uid);
       await updateDoc(userDocRef, {
         lastSeen: new Date().toISOString(),
-        status: 'online'
       });
     } catch (error: any) {
       if (error.code === 'auth/wrong-password' || error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential') {
@@ -187,13 +194,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logStatusChange = useCallback(async (userId: string, adminId: string, status: Status) => {
-    await addDoc(collection(db, "statusLogs"), {
-      userId,
-      adminId,
-      status,
-      timestamp: serverTimestamp(),
-    });
+    try {
+        const logDocRef = doc(collection(db, "statusLogs"));
+        await setDoc(logDocRef, {
+            userId,
+            adminId,
+            status,
+            timestamp: serverTimestamp(),
+        });
+    } catch (error) {
+        console.error("Failed to write status log:", error);
+    }
   }, []);
+
 
  const updateStatus = useCallback((newStatus: Status, comment?: string) => {
     if (!user) return;
@@ -259,7 +272,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [user, logStatusChange]);
 
   const uploadAvatar = useCallback(async (file: File): Promise<string> => {
-    const apiKey = "2c2eb7da53fcdf6fd713c4cc32d2a08c";
+    const apiKey = process.env.NEXT_PUBLIC_IMGBB_API_KEY;
+    if (!apiKey) {
+        throw new Error("Ключ API для загрузки изображений не настроен.");
+    }
     const formData = new FormData();
     formData.append("image", file);
     const response = await fetch(`https://api.imgbb.com/1/upload?key=${apiKey}`, { method: "POST", body: formData });
@@ -283,7 +299,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const { avatarFile, ...profileData } = data;
       let avatarUrl = data.avatar;
       if (avatarFile) {
-        avatarUrl = await uploadAvatar(avatarFile);
+        const newAvatarUrl = await uploadAvatar(avatarFile);
+        avatarUrl = `${newAvatarUrl}?timestamp=${new Date().getTime()}`;
       }
       const finalData: Partial<User> = { ...profileData };
       if (avatarUrl) {
@@ -312,30 +329,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const createNewUser = useCallback(async (data: NewUserFormData) => {
     if (!user || user.role !== 'admin') {
-      throw new Error("Только администраторы могут создавать пользователей.");
+        throw new Error("Только администраторы могут создавать пользователей.");
     }
     if (!data.password) {
-      throw new Error("Пароль обязателен для создания нового пользователя.");
+        throw new Error("Пароль обязателен для создания нового пользователя.");
     }
-    const tempAppName = `temp-auth-app-${Date.now()}`;
-    const firebaseConfig = auth.app.options;
-    const tempApp = initializeApp(firebaseConfig, tempAppName);
-    const tempAuth = getAuth(tempApp);
-    try {
-      const userCredential = await createUserWithEmailAndPassword(tempAuth, data.email, data.password);
-      const newFirebaseUser = userCredential.user;
-      const newUserDocRef = doc(db, "users", newFirebaseUser.uid);
-      const newUser: Omit<User, 'id'> = {
-        firstName: data.firstName || '', lastName: data.lastName || '', email: data.email,
-        role: data.role || 'employee', position: data.position || '', telegram: data.telegram || '',
-        status: 'offline', balance: 0, avatar: `https://i.pravatar.cc/150?u=${newFirebaseUser.uid}`,
-        isRemote: data.isRemote || false, disabled: false, lastSeen: new Date().toISOString()
-      };
-      await setDoc(newUserDocRef, newUser);
-    } finally {
-      await getAuth(tempApp).signOut();
-    }
-  }, [user]);
+
+    const userCredential = await createUserWithEmailAndPassword(auth, data.email, data.password);
+    const newFirebaseUser = userCredential.user;
+
+    const newUserDocRef = doc(db, "users", newFirebaseUser.uid);
+    const newUser: Omit<User, 'id'> = {
+        firstName: data.firstName || '',
+        lastName: data.lastName || '',
+        email: data.email,
+        role: data.role || 'employee',
+        position: data.position || '',
+        telegram: data.telegram || '',
+        status: 'offline',
+        balance: 0,
+        avatar: `https://i.pravatar.cc/150?u=${newFirebaseUser.uid}`,
+        isRemote: data.isRemote || false,
+        disabled: false,
+        lastSeen: new Date().toISOString(),
+    };
+
+    await setDoc(newUserDocRef, newUser);
+  }, [user, auth]);
+
 
   const updateUserBalance = useCallback(async (userId: string, points: number, action: 'add' | 'subtract', comment?: string) => {
     if (!user || user.role !== 'admin') return;

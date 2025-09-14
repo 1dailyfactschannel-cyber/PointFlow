@@ -20,6 +20,7 @@ const ToastViewport = React.forwardRef<
       className
     )}
     {...props}
+    suppressHydrationWarning
   />
 ))
 ToastViewport.displayName = ToastPrimitives.Viewport.displayName
@@ -50,6 +51,7 @@ const Toast = React.forwardRef<
       ref={ref}
       className={cn(toastVariants({ variant }), className)}
       {...props}
+      suppressHydrationWarning
     />
   )
 })
@@ -66,6 +68,7 @@ const ToastAction = React.forwardRef<
       className
     )}
     {...props}
+    suppressHydrationWarning
   />
 ))
 ToastAction.displayName = ToastPrimitives.Action.displayName
@@ -82,6 +85,7 @@ const ToastClose = React.forwardRef<
     )}
     toast-close=""
     {...props}
+    suppressHydrationWarning
   >
     <X className="h-4 w-4" />
   </ToastPrimitives.Close>
@@ -96,6 +100,7 @@ const ToastTitle = React.forwardRef<
     ref={ref}
     className={cn("text-sm font-semibold", className)}
     {...props}
+    suppressHydrationWarning
   />
 ))
 ToastTitle.displayName = ToastPrimitives.Title.displayName
@@ -108,6 +113,7 @@ const ToastDescription = React.forwardRef<
     ref={ref}
     className={cn("text-sm opacity-90", className)}
     {...props}
+    suppressHydrationWarning
   />
 ))
 ToastDescription.displayName = ToastPrimitives.Description.displayName

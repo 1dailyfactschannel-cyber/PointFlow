@@ -1,13 +1,12 @@
 
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import * as z from "zod";
-import { signInWithEmailAndPassword, sendPasswordResetEmail } from "firebase/auth";
-import { auth } from "@/lib/firebase";
+import { useAuth } from "@/context/auth-provider";
 import { Eye, EyeOff } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -38,6 +37,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Logo } from "@/components/icons";
 import { useToast } from "@/hooks/use-toast";
+import { Loader2 } from "lucide-react";
 
 const loginSchema = z.object({
   email: z.string().email({ message: "Неверный формат email." }),
@@ -49,10 +49,17 @@ const forgotPasswordSchema = z.object({
 });
 
 export default function LoginPage() {
+  const { signInWithEmailAndPassword, user, loading } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
   const [isForgotPasswordOpen, setIsForgotPasswordOpen] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+
+  useEffect(() => {
+    if (!loading && user) {
+      router.replace('/dashboard');
+    }
+  }, [user, loading, router]);
 
   const form = useForm<z.infer<typeof loginSchema>>({
     resolver: zodResolver(loginSchema),
@@ -64,42 +71,39 @@ export default function LoginPage() {
 
   async function onSubmit(values: z.infer<typeof loginSchema>) {
     try {
-      await signInWithEmailAndPassword(auth, values.email, values.password);
+      await signInWithEmailAndPassword(values.email, values.password);
       toast({
         title: "Вход выполнен",
         description: "Перенаправление на панель управления...",
       });
-      router.push("/dashboard");
+      router.replace("/"); // Redirect to root, which will handle auth routing
     } catch (error: any) {
        toast({
         variant: "destructive",
         title: "Ошибка входа",
-        description: "Неверный email или пароль.",
+        description: error.message || "Неверный email или пароль.",
       });
     }
   }
   
   const handlePasswordReset = async (values: { email: string }) => {
-    try {
-      await sendPasswordResetEmail(auth, values.email);
-      toast({
-        title: "Письмо отправлено",
-        description: "Проверьте свою почту для сброса пароля.",
-      });
-      setIsForgotPasswordOpen(false);
-    } catch (error: any) {
-      toast({
-        variant: "destructive",
-        title: "Ошибка",
-        description: "Не удалось отправить письмо. Проверьте правильность email.",
-      });
-    }
+    // This function will be implemented later.
   };
 
+  if (loading || user) {
+    return (
+        <div className="flex h-screen w-full items-center justify-center bg-background">
+          <Loader2 className="h-16 w-16 animate-spin text-muted-foreground" />
+        </div>
+      );
+  }
 
   return (
     <>
-      <div className="flex min-h-screen items-center justify-center bg-background p-4">
+      <div 
+        className="flex min-h-screen items-center justify-center bg-background p-4"
+        suppressHydrationWarning
+      >
         <Card className="w-full max-w-sm">
           <CardHeader className="text-center">
             <div className="mb-4 flex justify-center">

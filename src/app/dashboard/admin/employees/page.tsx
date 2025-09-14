@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, type ReactNode } from "react";
 import { useRouter } from 'next/navigation';
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -30,6 +30,40 @@ import { StatusBadge } from "@/components/status-badge";
 import type { User, Status, StatusLog, BalanceLog } from "@/lib/data";
 import { useToast } from "@/hooks/use-toast";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+
+// Helper component to delay rendering until client-side hydration is complete
+function ClientOnly({ children }: { children: ReactNode }) {
+    const [hasMounted, setHasMounted] = useState(false);
+    useEffect(() => {
+        setHasMounted(true);
+    }, []);
+
+    if (!hasMounted) {
+        return null;
+    }
+
+    return <>{children}</>;
+}
+
+// Client-side only formatted date component
+function FormattedDate({ date }: { date: Date | string }) {
+    return (
+        <ClientOnly>
+            {formatDistanceToNow(new Date(date), { addSuffix: true, locale: ru })}
+        </ClientOnly>
+    );
+}
+
+// Client-side only formatted timestamp component
+function FormattedTimestamp({ date }: { date: Date }) {
+    return <ClientOnly>{date.toLocaleString('ru-RU')}</ClientOnly>;
+}
+
+// Client-side only formatted number component
+function FormattedNumber({ value }: { value: number }) {
+    return <ClientOnly>{value.toLocaleString('ru-RU')}</ClientOnly>;
+}
+
 
 const employeeProfileSchema = z.object({
   firstName: z.string().min(1, "Имя обязательно."),
@@ -153,7 +187,7 @@ export default function EmployeesPage() {
     };
 
     const renderEmployeeRow = (user: User) => (
-        <TableRow key={user.id}>
+        <TableRow key={user.id} suppressHydrationWarning>
             <TableCell className="cursor-pointer hover:underline py-2" onClick={() => handleOpenAudit(user)}>
                 <div className="flex items-center gap-3">
                     <Avatar status={user.status}><AvatarImage src={user.avatar} className="object-cover" /><AvatarFallback>{user.firstName?.[0]}{user.lastName?.[0]}</AvatarFallback></Avatar>
@@ -164,7 +198,7 @@ export default function EmployeesPage() {
                                 <a href={`https://t.me/${user.telegram.replace('@', '')}`} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="text-muted-foreground hover:text-primary transition-colors" aria-label="Telegram"><Send className="h-4 w-4" /></a>
                             )}
                         </div>
-                        {user.status !== 'online' && user.lastSeen && <p className="text-xs text-muted-foreground">был(а) в сети {formatDistanceToNow(new Date(user.lastSeen), { addSuffix: true, locale: ru })}</p>}
+                        {user.status !== 'online' && user.lastSeen && <p className="text-xs text-muted-foreground">был(а) в сети <FormattedDate date={user.lastSeen} /></p>}
                     </div>
                 </div>
             </TableCell>
@@ -213,7 +247,7 @@ export default function EmployeesPage() {
                        <div className="w-full overflow-x-auto">
                         <Table>
                             <TableHeader>
-                                <TableRow>
+                                <TableRow suppressHydrationWarning>
                                     <TableHead>Сотрудник</TableHead>
                                     <TableHead>Должность</TableHead>
                                     <TableHead className="text-center">Статус</TableHead>
@@ -256,7 +290,7 @@ export default function EmployeesPage() {
                                     <div className="w-full overflow-x-auto">
                                         <Table>
                                             <TableHeader>
-                                                <TableRow>
+                                                <TableRow suppressHydrationWarning>
                                                     <TableHead>Сотрудник</TableHead>
                                                     <TableHead>Должность</TableHead>
                                                     <TableHead className="text-center">Статус</TableHead>
@@ -433,8 +467,6 @@ function EmployeeAuditDialog({ isOpen, onClose, employee, allUsers }: { isOpen: 
         return admin ? `${admin.firstName} ${admin.lastName}` : 'Система';
     }
     
-    const formatTimestamp = (timestamp: Date) => timestamp.toLocaleString('ru-RU');
-
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
             <DialogContent className="max-w-4xl">
@@ -458,7 +490,7 @@ function EmployeeAuditDialog({ isOpen, onClose, employee, allUsers }: { isOpen: 
                                     <>
                                         <TableCell><StatusBadge status={log.status} /></TableCell>
                                         <TableCell>{getAdminName(log.adminId)}</TableCell>
-                                        <TableCell>{formatTimestamp(log.timestamp)}</TableCell>
+                                        <TableCell><FormattedTimestamp date={log.timestamp} /></TableCell>
                                     </>
                                 )}
                             />
@@ -470,10 +502,10 @@ function EmployeeAuditDialog({ isOpen, onClose, employee, allUsers }: { isOpen: 
                                 renderRow={(log) => (
                                     <>
                                         <TableCell>{log.action === 'add' ? 'Начисление' : 'Списание'}</TableCell>
-                                        <TableCell className={`font-mono ${log.action === 'add' ? 'text-green-500' : 'text-red-500'}`}>{log.action === 'add' ? '+' : '-'}{log.points.toLocaleString('ru-RU')}</TableCell>
+                                        <TableCell className={`font-mono ${log.action === 'add' ? 'text-green-500' : 'text-red-500'}`}>{log.action === 'add' ? '+' : '-'}<FormattedNumber value={log.points} /></TableCell>
                                         <TableCell className="text-muted-foreground">{log.comment || '–'}</TableCell>
                                         <TableCell>{getAdminName(log.adminId)}</TableCell>
-                                        <TableCell>{formatTimestamp(log.timestamp)}</TableCell>
+                                        <TableCell><FormattedTimestamp date={log.timestamp} /></TableCell>
                                     </>
                                 )}
                             />
@@ -491,14 +523,14 @@ function AuditTableLogs<T extends {id: string}>({ logs, headers, renderRow }: { 
         <div className="max-h-96 overflow-y-auto">
             <Table>
                 <TableHeader>
-                    <TableRow>
+                    <TableRow suppressHydrationWarning>
                         {headers.map(header => <TableHead key={header}>{header}</TableHead>)}
                     </TableRow>
                 </TableHeader>
                 <TableBody>
                     {logs.length > 0 ? (
                         logs.map((log) => (
-                            <TableRow key={log.id}>
+                            <TableRow key={log.id} suppressHydrationWarning>
                                 {renderRow(log)}
                             </TableRow>
                         ))
